@@ -1,5 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+
+from PyInstaller.utils.hooks import collect_submodules
+
+sys.path.insert(0, SPECPATH)
+
 KEEP_QT_MODULES = {
     "Core",
     "Gui",
@@ -90,7 +96,7 @@ a = Analysis(
     datas=[
         ("howl_editor/gui/templates", "howl_editor/gui/templates"),
     ],
-    hiddenimports=[],
+    hiddenimports=collect_submodules("howl_editor"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

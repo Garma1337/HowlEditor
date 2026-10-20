@@ -743,7 +743,7 @@ class MusicWorkshopWidget(QWidget):
             "Add a melodic instrument descriptor. Pointing it at a sample "
             "another instrument already uses reuses that sample rather than "
             "copying it.",
-            lambda s=song_index: self.sig_add_instrument.emit(s),
+            lambda _checked=False, s=song_index: self.sig_add_instrument.emit(s),
         ))
 
         if not instruments:
@@ -862,7 +862,7 @@ class MusicWorkshopWidget(QWidget):
             "Add a percussion descriptor. Several descriptors may share one "
             "sample at different pitches — that is how CTR gets pitched "
             "variants of a single drum hit without a second copy of it.",
-            lambda s=song_index: self.sig_add_percussion.emit(s),
+            lambda _checked=False, s=song_index: self.sig_add_percussion.emit(s),
         ))
 
         if not percussions:

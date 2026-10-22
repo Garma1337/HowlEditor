@@ -113,29 +113,13 @@ class SampleLookup:
         Searches OtherFX, EngineFX, then CSEQ instrument/percussion definitions.
         Returns 11025 Hz if no reference is found.
         """
-        for fx in hwl.other_fx:
-            if fx.spu_index == spu_index and fx.pitch > 0:
-                return self._pitch_to_hz(fx.pitch)
+        return self.known_sample_rate(hwl, spu_index) or _DEFAULT_SAMPLE_RATE
 
-        for fx in hwl.engine_fx:
-            if fx.spu_index == spu_index and fx.pitch > 0:
-                return self._pitch_to_hz(fx.pitch)
-
-        for song_data in hwl.songs:
-            try:
-                cseq = self._cseq_parse_cache.read(song_data)
-
-                for inst in cseq.instruments:
-                    if inst.sample_id == spu_index and inst.frequency > 0:
-                        return self._pitch_to_hz(inst.frequency)
-
-                for perc in cseq.percussions:
-                    if perc.sample_id == spu_index and perc.frequency > 0:
-                        return self._pitch_to_hz(perc.frequency)
-            except Exception:
-                continue
-
-        return _DEFAULT_SAMPLE_RATE
+    def known_sample_rate(self, hwl: HowlFile, spu_index: int) -> int | None:
+        """Like `lookup_sample_rate`, but None when nothing references the
+        sample - for a caller that has a better fallback than 11025 Hz."""
+        pitch = self.sample_pitch_map(hwl).get(spu_index)
+        return self._pitch_to_hz(pitch) if pitch else None
 
     def sample_pitch_map(self, hwl: HowlFile) -> dict[int, int]:
         """spu_index → base-pitch register, for every sample referenced anywhere.

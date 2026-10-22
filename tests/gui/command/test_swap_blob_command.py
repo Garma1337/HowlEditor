@@ -1,11 +1,5 @@
 # coding: utf-8
 
-"""The SPU size table has to travel with the blob through undo *and* redo.
-
-A sample lives in a bank blob only as long as its SpuAddrEntry exists, so a
-command that restores one without the other silently drops the sample.
-"""
-
 import os
 
 import pytest
@@ -15,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "minimal")
 pytest.importorskip("PySide6")
 
 from howl_editor.ctr.formats.howl.collections import HowlCollection
-from howl_editor.ctr.formats.howl.models import HowlFile, SpuAddrEntry
+from howl_editor.ctr.formats.howl.models import HowlFile, OtherFX, SpuAddrEntry
 from howl_editor.gui.command.swap_blob_command import SwapBlobCommand
 
 
@@ -87,6 +81,54 @@ class TestSpuTableAcrossUndoRedo:
         command.undo()
 
         assert [e.size for e in window.hwl.spu_addrs] == [2]
+
+
+class TestOtherFxAcrossUndoRedo:
+    """A sample's rate lives in OtherFX, so an edit that records one has to
+    take it back on undo - otherwise the slot stays referenced forever."""
+
+    def _attach(self, window, pitch: int) -> list[OtherFX]:
+        before = [OtherFX(**vars(fx)) for fx in window.hwl.other_fx]
+        window.hwl.other_fx.append(OtherFX(pitch=pitch, spu_index=1))
+        return before
+
+    def test_undo_removes_an_added_entry(self, window):
+        before = self._attach(window, 0x0800)
+        command = SwapBlobCommand(window, "add", HowlCollection.BANKS, 0, bytes(32), old_fx=before)
+        command.redo()
+
+        command.undo()
+
+        assert window.hwl.other_fx == []
+
+    def test_redo_brings_it_back(self, window):
+        before = self._attach(window, 0x0800)
+        command = SwapBlobCommand(window, "add", HowlCollection.BANKS, 0, bytes(32), old_fx=before)
+        command.redo()
+        command.undo()
+
+        command.redo()
+
+        assert [(fx.spu_index, fx.pitch) for fx in window.hwl.other_fx] == [(1, 0x0800)]
+
+    def test_undo_restores_a_changed_pitch(self, window):
+        window.hwl.other_fx.append(OtherFX(pitch=0x0400, spu_index=1))
+        before = [OtherFX(**vars(fx)) for fx in window.hwl.other_fx]
+        window.hwl.other_fx[0].pitch = 0x1000
+        command = SwapBlobCommand(window, "replace", HowlCollection.BANKS, 0, bytes(32), old_fx=before)
+        command.redo()
+
+        command.undo()
+
+        assert window.hwl.other_fx[0].pitch == 0x0400
+
+    def test_an_added_entry_rebuilds_the_lists(self, window):
+        before = self._attach(window, 0x0800)
+        command = SwapBlobCommand(window, "add", HowlCollection.BANKS, 0, bytes(32), old_fx=before)
+
+        command.redo()
+
+        assert window.changes[-1].structural
 
 
 class TestWhatTheViewsAreTold:

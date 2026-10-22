@@ -10,6 +10,7 @@ from howl_editor.ctr.formats.cseq.models import (
     CseqPercussion,
 )
 from howl_editor.ctr.formats.cseq.writer import CseqWriter
+from howl_editor.ps1 import spu
 from tests.conftest import build_cseq_bytes
 
 
@@ -266,6 +267,13 @@ class TestRetargetInstrument:
         with pytest.raises(IndexError):
             cseq_editor_svc.retarget_instrument(self._blob(), 5, 0)
 
+    def test_takes_given_frequency(self, cseq_editor_svc, cseq_reader):
+        new_blob = cseq_editor_svc.retarget_instrument(self._blob(), 0, 42, 0x0800)
+        parsed = cseq_reader.read(new_blob)
+
+        assert parsed.instruments[0].frequency == 0x0800
+        assert parsed.instruments[0].volume == 128
+
 
 class TestRetargetPercussion:
 
@@ -291,6 +299,70 @@ class TestRetargetPercussion:
     def test_out_of_range_raises(self, cseq_editor_svc):
         with pytest.raises(IndexError):
             cseq_editor_svc.retarget_percussion(self._blob(), 7, 0)
+
+    def test_takes_given_frequency(self, cseq_editor_svc, cseq_reader):
+        new_blob = cseq_editor_svc.retarget_percussion(self._blob(), 0, 99, 0x0800)
+        parsed = cseq_reader.read(new_blob)
+
+        assert parsed.percussions[0].frequency == 0x0800
+
+
+class TestRetuneSample:
+
+    def _blob(self) -> bytes:
+        cseq = CseqFile(
+            instruments=[
+                CseqInstrument(frequency=0x1000, sample_id=5),
+                CseqInstrument(frequency=0x0400, sample_id=6),
+            ],
+            percussions=[
+                CseqPercussion(frequency=0x1000, sample_id=5),
+                CseqPercussion(frequency=0x0800, sample_id=5),
+            ],
+            songs=[_make_song()],
+        )
+        return CseqWriter(VlqCodec()).serialize(cseq)
+
+    def _retuned(self, cseq_editor_svc, cseq_reader, ratio: float, blob: bytes | None = None):
+        result = cseq_editor_svc.retune_sample(blob or self._blob(), 5, ratio)
+        return cseq_reader.read(result.blob), result.held
+
+    def test_scales_every_descriptor_using_the_sample(self, cseq_editor_svc, cseq_reader):
+        parsed, _ = self._retuned(cseq_editor_svc, cseq_reader, 0.5)
+
+        assert parsed.instruments[0].frequency == 0x0800
+        assert [p.frequency for p in parsed.percussions] == [0x0800, 0x0400]
+
+    def test_leaves_other_samples_alone(self, cseq_editor_svc, cseq_reader):
+        parsed, _ = self._retuned(cseq_editor_svc, cseq_reader, 0.5)
+
+        assert parsed.instruments[1].frequency == 0x0400
+
+    def test_nothing_held_within_the_ceiling(self, cseq_editor_svc, cseq_reader):
+        _, held = self._retuned(cseq_editor_svc, cseq_reader, 2.0)
+
+        assert held == 0
+
+    def test_stops_at_the_playable_ceiling(self, cseq_editor_svc, cseq_reader):
+        parsed, held = self._retuned(cseq_editor_svc, cseq_reader, 8.0)
+
+        assert parsed.instruments[0].frequency == spu.MAX_PITCH
+        assert [p.frequency for p in parsed.percussions] == [spu.MAX_PITCH, spu.MAX_PITCH]
+        assert held == 3
+
+    def test_a_pitch_already_above_the_ceiling_is_not_dragged_down(self, cseq_editor_svc, cseq_reader):
+        blob = CseqWriter(VlqCodec()).serialize(CseqFile(
+            instruments=[CseqInstrument(frequency=0x5000, sample_id=5)],
+            songs=[_make_song()],
+        ))
+
+        parsed, held = self._retuned(cseq_editor_svc, cseq_reader, 2.0, blob)
+
+        assert parsed.instruments[0].frequency == 0x5000
+        assert held == 1
+
+    def test_unused_sample_returns_none(self, cseq_editor_svc):
+        assert cseq_editor_svc.retune_sample(self._blob(), 77, 2.0) is None
 
 
 class TestReplaceTrackEvents:

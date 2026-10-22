@@ -136,8 +136,11 @@ A slot counts as **free** only when no bank, no OtherFX or EngineFX entry and no
 The HWL format has no per-sample rate field — playback rate is derived from whichever OtherFX entry, EngineFX entry, or CSEQ instrument references the sample. To keep an imported VAG's header `sample_rate` from being lost on save / reopen, the editor writes it into the FX table on every VAG-import path:
 
 - **Existing OtherFX entries** that reference the affected SPU index have their `pitch` field updated to match the imported VAG.
-- **Replace Sample** stops there — if no FX entry references the sample, nothing changes.
+- **Replace Sample** stops there — if no FX entry references the sample, nothing changes. It also offers to retune the song instruments and percussion that play the sample, scaling each by new rate ÷ old rate so pitched variants keep their spacing (capped at the SPU's 4× ceiling). Copying a sample over another one in **Copy sample to bank** does the same, using the source sample's rate.
+- **Copy sample to bank** into a new slot records the source sample's rate for the new slot, so the copy plays at the same speed as the original.
 - **Add Sample / Build Bank from VAGs / drag-and-drop** of a brand-new sample with no existing FX reference will **auto-create** an OtherFX entry pointing at the new SPU index with `pitch` from the VAG header. You'll see this new entry under the Effects node in the tree.
+
+All of these FX changes are part of the same undo step as the bank edit.
 
 If you don't want an auto-created Effects entry (e.g., the sample is purely a music note that you'll wire into a CSEQ instrument instead), just delete it from the tree — its sole purpose was to remember the rate.
 
@@ -460,9 +463,11 @@ The dialog remembers your choices for the rest of the session — handy when bat
 
 ### VAG Export Sample Rate
 
-Under **Settings → VAG export sample rate** you can pick the default Hz value used when decoding VAG bytes to WAV for export. The HWL format doesn't store a per-sample rate (playback is derived from FX / instrument entries), so when exporting a raw sample to WAV the editor has to pick one. Choices: **11025**, **22050**, **33075**, **44100**. The selection persists across restarts via `QSettings`.
+The HWL format doesn't store a per-sample rate, so exports use the rate the file already plays the sample at — the same OtherFX → EngineFX → instrument / percussion lookup as in-editor playback. That rate goes into both the exported WAV and the exported VAG's header, so a WAV sounds right in other software and a VAG imported back lands on the same pitch.
 
-Affects: Export Sample as WAV, Export Bank Samples as WAVs, Batch Export's sample WAVs, and the SFZ exporter's WAV writes. Does **not** affect in-editor playback (which uses the FX-table-derived rate, falling back to 11025 only when no reference exists).
+**Settings → VAG export sample rate** is the fallback for a sample nothing in the file references, where there's no rate to look up. Choices: **11025**, **22050**, **33075**, **44100**. The selection persists across restarts via `QSettings`.
+
+Affects: Export Sample (VAG and WAV), Export Bank Samples (VAGs and WAVs), Batch Export's samples, and the SFZ exporter's WAVs. Does **not** affect in-editor playback, which falls back to 11025 Hz instead.
 
 ### SFZ Export
 
@@ -478,10 +483,10 @@ samples/
 
 The text manifest contains one `<region>` per instrument and percussion entry pointing at the appropriate WAV:
 
-- **Melodic instruments** get `pitch_keycenter=60` plus an optional `tune=<cents>` derived from the instrument's frequency register (so an `0x2000` instrument shifts up exactly one octave) and a `volume` field in dB derived from the volume byte.
+- **Melodic instruments** get `pitch_keycenter=60` plus an optional `tune=<cents>` covering the gap between the rate the WAV was written at and the rate the instrument's frequency register plays it at (so an instrument at twice the sample's usual pitch shifts up exactly one octave), and a `volume` field in dB derived from the volume byte.
 - **Percussion** entries get `key=<N>` (the MIDI note number that triggers them) plus the same tune / volume mapping.
 
-Samples are deduplicated by SPU index — if two instruments reference the same sample, the WAV is written once. The WAV encoding rate is whatever you've set under [VAG Export Sample Rate](#vag-export-sample-rate).
+Samples are deduplicated by SPU index — if two instruments reference the same sample, the WAV is written once, at the rate the file plays it at (see [VAG Export Sample Rate](#vag-export-sample-rate)).
 
 ## Validation and Bulk Operations
 

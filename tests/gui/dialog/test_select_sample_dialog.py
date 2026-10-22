@@ -101,3 +101,23 @@ class TestFreeAndDisabledRows:
 
         assert dlg._list.currentRow() == 1
         assert dlg.chosen_spu_index() == 3
+
+
+class TestPitchOption:
+
+    def test_absent_by_default(self, qt_app):
+        dlg = SelectSampleDialog(None, "t", "p", _choices())
+
+        assert dlg.adopt_pitch() is False
+
+    def test_on_by_default_when_offered(self, qt_app):
+        dlg = SelectSampleDialog(None, "t", "p", _choices(), pitch_option="Use its pitch")
+
+        assert dlg.adopt_pitch() is True
+
+    def test_unticking_is_reported(self, qt_app):
+        dlg = SelectSampleDialog(None, "t", "p", _choices(), pitch_option="Use its pitch")
+
+        dlg._pitch_option.setChecked(False)
+
+        assert dlg.adopt_pitch() is False

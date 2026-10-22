@@ -47,7 +47,7 @@ class SfzExporter:
         sample_blobs = self._collect_referenced_samples(
             hwl, cseq.instruments, cseq.percussions,
         )
-        written_files = self._write_sample_wavs(sample_blobs, samples_dir, wav_sample_rate)
+        written_files = self._write_sample_wavs(hwl, sample_blobs, samples_dir, wav_sample_rate)
 
         song_name = self._cseq_reader.get_name(song_index) or f"song_{song_index}"
         text = self._build_sfz_text(
@@ -80,24 +80,26 @@ class SfzExporter:
         return out
 
     def _write_sample_wavs(
-        self, sample_blobs: dict[int, bytes], samples_dir: Path,
+        self, hwl: HowlFile, sample_blobs: dict[int, bytes], samples_dir: Path,
         wav_sample_rate: int,
-    ) -> dict[int, str]:
-        """Decode each unique sample to WAV and write it. Returns a map of
-        SPU index → relative WAV filename for SFZ region references."""
-        out: dict[int, str] = {}
+    ) -> dict[int, tuple[str, int]]:
+        """Decode each unique sample to WAV, at the rate the file plays it at
+        when it knows one, and write it. Returns a map of SPU index →
+        (relative WAV filename, WAV rate) for SFZ region references."""
+        out: dict[int, tuple[str, int]] = {}
 
         for spu_index, data in sample_blobs.items():
             filename = f"SPU_{spu_index:04d}.wav"
-            wav = self._vag_decoder.decode_to_wav(data, wav_sample_rate)
+            rate = self._sample_lookup.known_sample_rate(hwl, spu_index) or wav_sample_rate
+            wav = self._vag_decoder.decode_to_wav(data, rate)
             (samples_dir / filename).write_bytes(wav)
-            out[spu_index] = f"samples/{filename}"
+            out[spu_index] = (f"samples/{filename}", rate)
 
         return out
 
     def _build_sfz_text(
         self, song_name: str, instruments, percussions,
-        sample_paths: dict[int, str],
+        sample_paths: dict[int, tuple[str, int]],
     ) -> str:
         lines: list[str] = []
         lines.append(f"// CTR Song: {song_name}")
@@ -120,13 +122,13 @@ class SfzExporter:
         return "\n".join(lines)
 
     def _instrument_region(
-        self, index: int, inst, sample_paths: dict[int, str],
+        self, index: int, inst, sample_paths: dict[int, tuple[str, int]],
     ) -> list[str]:
-        path = sample_paths.get(inst.sample_id)
-        if path is None:
+        if inst.sample_id not in sample_paths:
             return [f"// instrument {index}: SPU #{inst.sample_id} not found in any bank"]
 
-        tune = self._frequency_to_tune_cents(inst.frequency)
+        path, wav_rate = sample_paths[inst.sample_id]
+        tune = self._frequency_to_tune_cents(inst.frequency, wav_rate)
         volume = self._byte_to_decibels(inst.volume)
 
         block = [
@@ -144,14 +146,14 @@ class SfzExporter:
         return block
 
     def _percussion_region(
-        self, index: int, perc, sample_paths: dict[int, str],
+        self, index: int, perc, sample_paths: dict[int, tuple[str, int]],
     ) -> list[str]:
-        path = sample_paths.get(perc.sample_id)
-        if path is None:
+        if perc.sample_id not in sample_paths:
             return [f"// percussion {index}: SPU #{perc.sample_id} not found in any bank"]
 
+        path, wav_rate = sample_paths[perc.sample_id]
         key = index
-        tune = self._frequency_to_tune_cents(perc.frequency)
+        tune = self._frequency_to_tune_cents(perc.frequency, wav_rate)
         volume = self._byte_to_decibels(perc.volume)
 
         block = [
@@ -169,13 +171,14 @@ class SfzExporter:
 
         return block
 
-    def _frequency_to_tune_cents(self, frequency: int) -> int:
-        """Translate a CSEQ pitch register value into SFZ's `tune` (cents),
-        measured against spu.FREQUENCY_UNIT as the no-shift baseline."""
-        if frequency <= 0:
+    def _frequency_to_tune_cents(self, frequency: int, wav_rate: int) -> int:
+        """Translate a CSEQ pitch register value into SFZ's `tune` (cents).
+        The console plays the sample at frequency / FREQUENCY_UNIT × 44100 Hz;
+        the sampler plays the WAV at `wav_rate`, so tune covers the gap."""
+        if frequency <= 0 or wav_rate <= 0:
             return 0
 
-        ratio = frequency / spu.FREQUENCY_UNIT
+        ratio = frequency / spu.FREQUENCY_UNIT * spu.SAMPLE_RATE / wav_rate
 
         if ratio <= 0:
             return 0

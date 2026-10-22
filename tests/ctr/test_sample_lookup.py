@@ -7,6 +7,7 @@ from howl_editor.ctr.formats.cseq.models import CseqInstrument, CseqPercussion
 from howl_editor.ctr.formats.cseq.reader import CseqReader
 from howl_editor.ctr.formats.howl.models import HowlFile, SpuAddrEntry, OtherFX, EngineFX
 from howl_editor.ctr.sample_lookup import SampleLookup
+from howl_editor.ctr.voice.sample_rate_converter import SampleRateConverter
 from tests.conftest import build_bank_blob, build_cseq_bytes
 
 
@@ -224,6 +225,25 @@ class TestSamplePitchMap:
 
     def test_empty_for_empty_hwl(self):
         assert _lookup().sample_pitch_map(HowlFile()) == {}
+
+
+class TestKnownSampleRate:
+
+    def test_none_when_nothing_references_the_sample(self):
+        assert _lookup().known_sample_rate(HowlFile(), 5) is None
+
+    def test_rate_from_the_first_reference(self):
+        hwl = HowlFile(other_fx=[OtherFX(spu_index=5, pitch=2048)])
+
+        assert _lookup().known_sample_rate(hwl, 5) == 22050
+
+    def test_converts_back_to_the_exact_pitch(self):
+        """A VAG exported with this rate has to import back onto the same
+        register, or the replace would retune the songs off by one."""
+        cseq_data = build_cseq_bytes(instruments=[CseqInstrument(sample_id=1, frequency=2755)])
+        rate = _lookup().known_sample_rate(HowlFile(songs=[cseq_data]), 1)
+
+        assert SampleRateConverter().pitch_for_rate(rate) == 2755
 
 
 class TestLookupSampleRate:

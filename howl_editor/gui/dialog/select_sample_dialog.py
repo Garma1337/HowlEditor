@@ -4,7 +4,7 @@ from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QVBoxLayout,
 )
 
@@ -26,6 +26,7 @@ class SelectSampleDialog(QDialog):
         choices: list[SampleChoice],
         current_spu_index: int | None = None,
         on_preview: Callable[[int], None] | None = None,
+        pitch_option: str | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -33,7 +34,8 @@ class SelectSampleDialog(QDialog):
         self._choices = choices
         self._current = current_spu_index
         self._on_preview = on_preview
-        self._build_ui(prompt)
+        self._pitch_option = None
+        self._build_ui(prompt, pitch_option)
 
     def chosen_spu_index(self) -> int | None:
         item = self._list.currentItem()
@@ -42,7 +44,12 @@ class SelectSampleDialog(QDialog):
 
         return item.data(Qt.UserRole)
 
-    def _build_ui(self, prompt: str) -> None:
+    def adopt_pitch(self) -> bool:
+        """Whether the caller should move the descriptor onto the chosen
+        sample's pitch."""
+        return self._pitch_option is not None and self._pitch_option.isChecked()
+
+    def _build_ui(self, prompt: str, pitch_option: str | None) -> None:
         layout = QVBoxLayout(self)
 
         header = QLabel(prompt)
@@ -58,6 +65,11 @@ class SelectSampleDialog(QDialog):
         layout.addWidget(self._list, stretch=1)
         self._list.itemDoubleClicked.connect(lambda _item: self.accept())
         self._populate()
+
+        if pitch_option is not None:
+            self._pitch_option = QCheckBox(pitch_option)
+            self._pitch_option.setChecked(True)
+            layout.addWidget(self._pitch_option)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)

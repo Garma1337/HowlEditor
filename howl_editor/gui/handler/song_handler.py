@@ -22,7 +22,6 @@ from howl_editor.gui.dialog.select_sample_dialog import (
 )
 from howl_editor.midi.availability import HAS_MIDO
 from howl_editor.midi.export_options import MidiExportOptions
-from howl_editor.ps1 import spu
 
 
 class SongHandler:
@@ -578,6 +577,7 @@ class SongHandler:
                 choices=choices,
                 current_spu_index=current_id,
                 on_preview=self._preview_sample,
+                pitch_option="Use the pitch the chosen sample is already played at",
             )
 
             if dialog.exec() != QDialog.Accepted:
@@ -588,18 +588,31 @@ class SongHandler:
                 return
 
             song_blob = self._w.hwl.songs[song_index]
+            pitch = self._known_pitch_for(cseq, new_id) if dialog.adopt_pitch() else None
 
             if percussion:
-                new_blob = self._w._services.resolve("cseq_editor").retarget_percussion(song_blob, entry_index, new_id)
+                new_blob = self._w._services.resolve("cseq_editor").retarget_percussion(
+                    song_blob, entry_index, new_id, pitch,
+                )
                 description = f"Retarget percussion {entry_index} → SPU #{new_id}"
             else:
-                new_blob = self._w._services.resolve("cseq_editor").retarget_instrument(song_blob, entry_index, new_id)
+                new_blob = self._w._services.resolve("cseq_editor").retarget_instrument(
+                    song_blob, entry_index, new_id, pitch,
+                )
                 description = f"Retarget instrument {entry_index} → SPU #{new_id}"
 
             self._w._undo_stack.push(SwapBlobCommand(
                 self._w, description, HowlCollection.SONGS, song_index, new_blob,
             ))
-            self._w._notify(f"{kind.capitalize()} {entry_index} now points at SPU #{new_id}")
+
+            if not dialog.adopt_pitch():
+                pitch_note = "pitch kept"
+            elif pitch is None:
+                pitch_note = "pitch kept, nothing else plays that sample yet"
+            else:
+                pitch_note = f"pitch set to 0x{pitch:04X}, the rate it is already played at"
+
+            self._w._notify(f"{kind.capitalize()} {entry_index} now points at SPU #{new_id} ({pitch_note})")
         except Exception as e:
             QMessageBox.critical(self._w, "Error", f"Retarget failed:\n{e}")
 
@@ -721,7 +734,7 @@ class SongHandler:
                     kind, new_index, sample_id, existing,
                 ),
                 initial_volume=cseq_fmt.MAX_VOLUME,
-                initial_frequency=self._seed_pitch_for(table, sample_id),
+                initial_frequency=self._seed_pitch_for(cseq, sample_id),
                 initial_adsr=None if percussion else CseqInstrument().adsr,
                 pitch_stepper=self._w._services.resolve("pitch_stepper"),
             )
@@ -757,15 +770,21 @@ class SongHandler:
     def _descriptors_using(self, table, sample_id: int) -> list[int]:
         return [i for i, entry in enumerate(table) if entry.sample_id == sample_id]
 
-    def _seed_pitch_for(self, table, sample_id: int) -> int:
-        """Start from the pitch an existing descriptor already plays this
-        sample at, so the user edits away from something audible rather than
-        from a guess. Falls back to the neutral default for an unused sample."""
-        for entry in table:
-            if entry.sample_id == sample_id:
+    def _seed_pitch_for(self, cseq, sample_id: int) -> int:
+        """Start from the pitch the file already plays this sample at, so the
+        user edits away from something audible rather than from a guess.
+        Falls back to the neutral default for an unused sample."""
+        return self._known_pitch_for(cseq, sample_id) or cseq_fmt.DEFAULT_BASE_PITCH
+
+    def _known_pitch_for(self, cseq, sample_id: int) -> int | None:
+        """The pitch a retargeted descriptor should take on: the one this
+        song already plays the sample at, else the one anything else in the
+        file does."""
+        for entry in (*cseq.instruments, *cseq.percussions):
+            if entry.sample_id == sample_id and entry.frequency > 0:
                 return entry.frequency
 
-        return cseq_fmt.DEFAULT_BASE_PITCH
+        return self._w._services.resolve("sample_lookup").sample_pitch_map(self._w.hwl).get(sample_id)
 
     def _new_descriptor_blurb(
         self, kind: str, new_index: int, sample_id: int, existing: list[int],
@@ -790,7 +809,7 @@ class SongHandler:
             return
 
         rate_hz = self._w._services.resolve("sample_lookup").lookup_sample_rate(self._w.hwl, spu_index)
-        pitch = int(rate_hz * spu.FREQUENCY_UNIT / spu.SAMPLE_RATE)
+        pitch = self._w._services.resolve("sample_rate_converter").pitch_for_rate(rate_hz)
         self._w._playback.play_spu_sample(spu_index, pitch, "Preview")
 
     def _build_sample_choices(self) -> list[SampleChoice]:

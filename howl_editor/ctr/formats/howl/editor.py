@@ -1,9 +1,13 @@
 # coding: utf-8
 
 from howl_editor.ctr.formats.howl.models import HowlFile, OtherFX
+from howl_editor.ctr.voice.sample_rate_converter import SampleRateConverter
 
 
 class HowlEditor:
+
+    def __init__(self, rate_converter: SampleRateConverter):
+        self._rate_converter = rate_converter
 
     def add_bank(self, hwl: HowlFile, bank_data: bytes) -> int:
         """Add a bank blob, returns its new index."""
@@ -51,7 +55,9 @@ class HowlEditor:
         if sample_rate <= 0:
             return 0
 
-        pitch = self._encode_pitch(sample_rate)
+        return self.set_sample_pitch(hwl, spu_index, self._rate_converter.pitch_for_rate(sample_rate))
+
+    def set_sample_pitch(self, hwl: HowlFile, spu_index: int, pitch: int) -> int:
         touched = 0
 
         for fx in hwl.other_fx:
@@ -67,17 +73,17 @@ class HowlEditor:
         if sample_rate <= 0:
             return
 
-        if self.set_sample_rate(hwl, spu_index, sample_rate) == 0:
+        self.attach_sample_pitch(hwl, spu_index, self._rate_converter.pitch_for_rate(sample_rate))
+
+    def attach_sample_pitch(self, hwl: HowlFile, spu_index: int, pitch: int) -> None:
+        if self.set_sample_pitch(hwl, spu_index, pitch) == 0:
             hwl.other_fx.append(OtherFX(
                 flags=0,
                 volume=255,
-                pitch=self._encode_pitch(sample_rate),
+                pitch=pitch,
                 spu_index=spu_index,
                 duration=0,
             ))
-
-    def _encode_pitch(self, sample_rate: int) -> int:
-        return int(round(sample_rate / 44100.0 * 4096.0))
 
     def _validate_index(self, index: int, length: int, label: str) -> None:
         if index < 0 or index >= length:

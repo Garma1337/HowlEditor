@@ -1,5 +1,7 @@
 # coding: utf-8
 
+import wave
+
 import pytest
 
 from howl_editor.audio.wav_writer import WavWriter
@@ -13,6 +15,11 @@ from howl_editor.ctr.sample_lookup import SampleLookup
 from howl_editor.export.sfz_exporter import SfzExporter
 from howl_editor.ps1.formats.vag.decoder import VagDecoder
 from tests.conftest import build_cseq_bytes, build_bank_blob
+
+
+def _wav_rate(path) -> int:
+    with wave.open(str(path)) as wav:
+        return wav.getframerate()
 
 
 @pytest.fixture
@@ -33,7 +40,8 @@ def _make_hwl():
     song = build_cseq_bytes(
         instruments=[
             CseqInstrument(volume=255, frequency=0x1000, sample_id=0),
-            CseqInstrument(volume=128, frequency=0x2000, sample_id=1),
+            CseqInstrument(volume=128, frequency=0x2000, sample_id=0),
+            CseqInstrument(volume=128, frequency=0x0800, sample_id=1),
         ],
         percussions=[CseqPercussion(volume=200, frequency=0x1000, sample_id=0)],
     )
@@ -67,8 +75,23 @@ class TestSfzExport:
         sfz_exporter.export(_make_hwl(), 0, sfz_path, wav_sample_rate=22050)
 
         text = sfz_path.read_text(encoding="utf-8")
-        # Instrument 1 has frequency=0x2000 (one octave up) → tune=1200.
+        # SPU 0's WAV is written at the 0x1000 its first instrument plays it
+        # at, so instrument 1 (0x2000, one octave up) → tune=1200.
         assert "tune=1200" in text
+
+    def test_wav_is_written_at_the_rate_the_file_plays_it_at(self, sfz_exporter, tmp_path):
+        sfz_path = tmp_path / "test.sfz"
+        sfz_exporter.export(_make_hwl(), 0, sfz_path, wav_sample_rate=11025)
+
+        assert _wav_rate(tmp_path / "samples" / "SPU_0000.wav") == 44100
+        assert _wav_rate(tmp_path / "samples" / "SPU_0001.wav") == 22050
+
+    def test_a_sample_at_its_own_rate_needs_no_tune(self, sfz_exporter, tmp_path):
+        sfz_path = tmp_path / "test.sfz"
+        sfz_exporter.export(_make_hwl(), 0, sfz_path, wav_sample_rate=11025)
+
+        region = sfz_path.read_text(encoding="utf-8").split("// instrument 2")[1].split("<region>")[0]
+        assert "tune=" not in region
 
     def test_safe_filename_stem(self, sfz_exporter):
         assert sfz_exporter.safe_filename_stem("Dingo Canyon") == "Dingo_Canyon"

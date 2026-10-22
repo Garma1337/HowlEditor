@@ -55,9 +55,13 @@ class BankHandler:
         try:
             samples = self._window._services.resolve("bank_reader").parse(self._window.hwl.banks[index], self._window.hwl.spu_addrs)
 
+            lookup = self._window._services.resolve("sample_lookup")
+            fallback_rate = self._window._services.resolve("vag_rate_provider").rate
+
             for sample in samples:
+                rate = lookup.known_sample_rate(self._window.hwl, sample.spu_index) or fallback_rate
                 self._window._services.resolve("vag_writer").write_file(
-                    VagSample(data=sample.data),
+                    VagSample(sample_rate=rate, data=sample.data),
                     Path(folder) / f"sample_{sample.spu_index}.vag",
                 )
 
@@ -75,9 +79,11 @@ class BankHandler:
 
         try:
             samples = self._window._services.resolve("bank_reader").parse(self._window.hwl.banks[index], self._window.hwl.spu_addrs)
-            rate = self._window._services.resolve("vag_rate_provider").rate
+            lookup = self._window._services.resolve("sample_lookup")
+            fallback_rate = self._window._services.resolve("vag_rate_provider").rate
 
             for sample in samples:
+                rate = lookup.known_sample_rate(self._window.hwl, sample.spu_index) or fallback_rate
                 wav = self._window._services.resolve("vag_decoder").decode_to_wav(sample.data, rate)
                 (Path(folder) / f"sample_{sample.spu_index}.wav").write_bytes(wav)
 

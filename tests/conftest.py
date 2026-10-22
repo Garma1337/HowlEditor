@@ -26,6 +26,7 @@ from howl_editor.ctr.formats.howl.models import HowlFile, HowlHeader, SpuAddrEnt
 from howl_editor.ctr.formats.howl.reader import HowlReader
 from howl_editor.ctr.formats.howl.version import HowlVersionDetector
 from howl_editor.ctr.formats.howl.writer import HowlWriter
+from howl_editor.ctr.voice.sample_rate_converter import SampleRateConverter
 from howl_editor.gui.entries.blob_modification_detector import BlobModificationDetector
 from howl_editor.gui.entries.entry_leaves_builder import EntryLeavesBuilder
 from howl_editor.gui.entries.semantic_entry_builder import SemanticEntryBuilder
@@ -52,7 +53,7 @@ def howl_writer():
 
 @pytest.fixture
 def howl_editor():
-    return HowlEditor()
+    return HowlEditor(SampleRateConverter())
 
 @pytest.fixture
 def vlq_codec():

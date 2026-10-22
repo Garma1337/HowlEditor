@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "minimal")
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QLabel, QRadioButton
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QRadioButton
 
 from howl_editor.ctr.analysis.sample_replacement_planner import SampleReplacementPlan
 from howl_editor.ctr.diagnostics.bank_size_guard import BankSizeCheck
@@ -119,3 +119,25 @@ class TestSaphiCap:
         dialog = _dialog(qt_app, self._plan_with_blob(1024))
 
         assert "Saphi" not in _texts(dialog)
+
+
+class TestRetuneOption:
+
+    def test_not_offered_when_no_song_would_change(self, qt_app):
+        dialog = _dialog(qt_app, _plan())
+
+        assert dialog.findChildren(QCheckBox) == []
+        assert dialog.chosen().retune_songs is False
+
+    def test_retuning_is_the_default(self, qt_app):
+        dialog = ReplaceSampleDialog(None, _plan(), "new_drum.vag", "Bank 15", [2, 7])
+
+        assert dialog.chosen().retune_songs is True
+        assert "songs 2, 7" in dialog.findChildren(QCheckBox)[0].text()
+
+    def test_unticking_keeps_the_pitches(self, qt_app):
+        dialog = ReplaceSampleDialog(None, _plan(), "new_drum.vag", "Bank 15", [2])
+
+        dialog.findChildren(QCheckBox)[0].setChecked(False)
+
+        assert dialog.chosen().retune_songs is False

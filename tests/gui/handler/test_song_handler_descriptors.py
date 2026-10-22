@@ -8,6 +8,7 @@ the behaviour that makes sample reuse discoverable is worth pinning down.
 """
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "minimal")
 pytest.importorskip("PySide6")
 
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
-from howl_editor.ctr.formats.cseq.models import CseqPercussion
+from howl_editor.ctr.formats.cseq.models import CseqFile, CseqInstrument, CseqPercussion
 from howl_editor.ctr.formats.cseq.pitch_shifter import PitchShiftResult
 from howl_editor.gui.handler.song_handler import SongHandler
 
@@ -50,21 +51,34 @@ class TestDescriptorsUsing:
 
 class TestSeedPitch:
 
-    def test_reuses_the_pitch_an_existing_descriptor_plays_it_at(self, handler):
-        table = _table((12, 4096), (447, 1024))
+    @pytest.fixture
+    def handler(self):
+        """A window whose file plays SPU 50 at 0x0800 somewhere outside the
+        song - an OtherFX entry, as copying a sample into a new slot leaves."""
+        lookup = SimpleNamespace(sample_pitch_map=lambda hwl: {50: 0x0800})
+        window = SimpleNamespace(hwl=object(), _services=SimpleNamespace(resolve=lambda name: lookup))
+        return SongHandler(window)
 
-        assert handler._seed_pitch_for(table, 447) == 1024
+    def test_reuses_the_pitch_an_existing_descriptor_plays_it_at(self, handler):
+        cseq = CseqFile(percussions=_table((12, 4096), (447, 1024)))
+
+        assert handler._seed_pitch_for(cseq, 447) == 1024
 
     def test_takes_the_first_match_when_several_pitches_exist(self, handler):
-        table = _table((447, 1024), (447, 767))
+        cseq = CseqFile(percussions=_table((447, 1024), (447, 767)))
 
-        assert handler._seed_pitch_for(table, 447) == 1024
+        assert handler._seed_pitch_for(cseq, 447) == 1024
+
+    def test_looks_across_instruments_and_percussion(self, handler):
+        cseq = CseqFile(instruments=[CseqInstrument(sample_id=447, frequency=1024)])
+
+        assert handler._seed_pitch_for(cseq, 447) == 1024
+
+    def test_falls_back_to_the_pitch_elsewhere_in_the_file(self, handler):
+        assert handler._seed_pitch_for(CseqFile(), 50) == 0x0800
 
     def test_falls_back_to_default_for_an_unused_sample(self, handler):
-        assert handler._seed_pitch_for(_table((1, 100)), 999) == cseq_fmt.DEFAULT_BASE_PITCH
-
-    def test_falls_back_on_empty_table(self, handler):
-        assert handler._seed_pitch_for([], 0) == cseq_fmt.DEFAULT_BASE_PITCH
+        assert handler._seed_pitch_for(CseqFile(percussions=_table((1, 100))), 999) == cseq_fmt.DEFAULT_BASE_PITCH
 
 
 class TestNewDescriptorBlurb:

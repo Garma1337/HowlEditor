@@ -1,5 +1,7 @@
 # coding: utf-8
 
+from dataclasses import dataclass
+
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
 from howl_editor.ctr.formats.cseq.models import (
     CSEQ_EDITABLE_EVENTS, CseqEvent, CseqEventType, CseqInstrument,
@@ -7,6 +9,13 @@ from howl_editor.ctr.formats.cseq.models import (
 )
 from howl_editor.ctr.formats.cseq.reader import CseqReader
 from howl_editor.ctr.formats.cseq.writer import CseqWriter
+from howl_editor.ps1 import spu
+
+
+@dataclass(frozen=True)
+class SampleRetuneResult:
+    blob: bytes
+    held: int   # descriptors stopped at the SPU's playable ceiling
 
 
 class CseqEditor:
@@ -81,20 +90,22 @@ class CseqEditor:
 
     def retarget_instrument(
         self, song_data: bytes, inst_index: int, new_sample_id: int,
+        frequency: int | None = None,
     ) -> bytes:
-        """Point one instrument at a different SPU index without touching
-        its other fields. Lets a music maker swap which sample an instrument
-        sounds like in one click instead of exporting + reimporting VAGs."""
+        """Point one instrument at a different SPU index. Lets a music maker
+        swap which sample an instrument sounds like in one click instead of
+        exporting + reimporting VAGs."""
         cseq = self._reader.read(song_data)
 
         if inst_index < 0 or inst_index >= len(cseq.instruments):
             raise IndexError(f"Instrument index {inst_index} out of range")
 
-        cseq.instruments[inst_index].sample_id = new_sample_id
+        self._retarget_entry(cseq.instruments[inst_index], new_sample_id, frequency)
         return self._writer.serialize(cseq)
 
     def retarget_percussion(
         self, song_data: bytes, perc_index: int, new_sample_id: int,
+        frequency: int | None = None,
     ) -> bytes:
         """Same as retarget_instrument but for the percussion table."""
         cseq = self._reader.read(song_data)
@@ -102,8 +113,43 @@ class CseqEditor:
         if perc_index < 0 or perc_index >= len(cseq.percussions):
             raise IndexError(f"Percussion index {perc_index} out of range")
 
-        cseq.percussions[perc_index].sample_id = new_sample_id
+        self._retarget_entry(cseq.percussions[perc_index], new_sample_id, frequency)
         return self._writer.serialize(cseq)
+
+    def _retarget_entry(self, entry, new_sample_id: int, frequency: int | None) -> None:
+        entry.sample_id = new_sample_id
+
+        if frequency is not None:
+            entry.frequency = max(0, min(cseq_fmt.MAX_PITCH_REGISTER, frequency))
+
+    def retune_sample(
+        self, song_data: bytes, sample_id: int, ratio: float,
+    ) -> SampleRetuneResult | None:
+        """None when nothing in the song plays `sample_id`.
+
+        Stops at spu.MAX_PITCH like an octave shift does. A descriptor already
+        above it (a modded file) is not dragged down by a retune upwards."""
+        cseq = self._reader.read(song_data)
+        changed = held = 0
+
+        for entry in (*cseq.instruments, *cseq.percussions):
+            if entry.sample_id != sample_id or entry.frequency <= 0:
+                continue
+
+            target = max(1, round(entry.frequency * ratio))
+            ceiling = max(spu.MAX_PITCH, entry.frequency)
+
+            if target > ceiling:
+                target = ceiling
+                held += 1
+
+            entry.frequency = target
+            changed += 1
+
+        if not changed:
+            return None
+
+        return SampleRetuneResult(blob=self._writer.serialize(cseq), held=held)
 
     def append_instrument(
         self, song_data: bytes, sample_id: int, volume: int, frequency: int,

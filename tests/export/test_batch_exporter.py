@@ -1,5 +1,7 @@
 # coding: utf-8
 
+import wave
+
 import pytest
 
 from howl_editor.audio.wav_writer import WavWriter
@@ -11,9 +13,11 @@ from howl_editor.ctr.formats.bank.reader import BankReader
 from howl_editor.ctr.formats.cseq.models import CseqInstrument, CseqPercussion
 from howl_editor.ctr.formats.cseq.reader import CseqReader
 from howl_editor.ctr.formats.howl.models import HowlFile, SpuAddrEntry, OtherFX
+from howl_editor.ctr.sample_lookup import SampleLookup
 from howl_editor.export.batch_exporter import BatchExporter
 from howl_editor.midi.exporter import CseqMidiExporter
 from howl_editor.ps1.formats.vag.decoder import VagDecoder
+from howl_editor.ps1.formats.vag.reader import VagReader
 from howl_editor.ps1.formats.vag.writer import VagWriter
 from tests.conftest import build_cseq_bytes, build_bank_blob
 
@@ -29,6 +33,7 @@ def batch_exporter():
         vag_decoder=VagDecoder(WavWriter()),
         sample_classifier=SampleClassifier(cseq_reader),
         midi_exporter=CseqMidiExporter(),
+        sample_lookup=SampleLookup(BankReader(StockNameResolver()), cseq_reader),
     )
 
 
@@ -74,6 +79,30 @@ class TestBatchExport:
 
         cseq_files = list((tmp_path / "songs").glob("*.cseq"))
         assert len(cseq_files) == 1
+
+    def test_vag_header_carries_the_rate_the_file_plays_it_at(self, batch_exporter, tmp_path):
+        batch_exporter.export(_make_hwl(), tmp_path)
+
+        vag = VagReader().read_file(next((tmp_path / "samples").rglob("Sample_000.vag")))
+
+        assert vag.sample_rate == 11025   # OtherFX pitch 1024
+
+    def test_wav_is_written_at_the_rate_the_file_plays_it_at(self, batch_exporter, tmp_path):
+        batch_exporter.export(_make_hwl(), tmp_path, wav_sample_rate=22050)
+
+        path = next((tmp_path / "samples").rglob("Sample_000.wav"))
+        with wave.open(str(path)) as wav:
+            assert wav.getframerate() == 11025
+
+    def test_vag_header_falls_back_to_the_export_rate(self, batch_exporter, tmp_path):
+        hwl = _make_hwl()
+        hwl.songs = []
+        hwl.other_fx = []
+
+        batch_exporter.export(hwl, tmp_path, wav_sample_rate=22050)
+
+        vag = VagReader().read_file(next((tmp_path / "samples").rglob("Sample_000.vag")))
+        assert vag.sample_rate == 22050
 
     def test_exports_samples_as_vag_and_wav(self, batch_exporter, tmp_path):
         hwl = _make_hwl()

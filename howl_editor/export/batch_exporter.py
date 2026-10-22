@@ -9,6 +9,7 @@ from howl_editor.ctr.formats.bank.reader import BankReader
 from howl_editor.ctr.formats.cseq.reader import CseqReader
 from howl_editor.ctr.formats.howl.collections import HowlCollection
 from howl_editor.ctr.formats.howl.models import HowlFile
+from howl_editor.ctr.sample_lookup import SampleLookup
 from howl_editor.midi.availability import HAS_MIDO
 from howl_editor.midi.exporter import CseqMidiExporter
 from howl_editor.ps1.formats.vag.decoder import VagDecoder
@@ -50,6 +51,7 @@ class BatchExporter:
         vag_decoder: VagDecoder,
         sample_classifier: SampleClassifier,
         midi_exporter: CseqMidiExporter,
+        sample_lookup: SampleLookup,
     ):
         self._bank_reader = bank_reader
         self._cseq_reader = cseq_reader
@@ -57,6 +59,7 @@ class BatchExporter:
         self._vag_decoder = vag_decoder
         self._classifier = sample_classifier
         self._midi_exporter = midi_exporter
+        self._sample_lookup = sample_lookup
 
     def export(
         self, hwl: HowlFile, output_dir: Path, wav_sample_rate: int = 11025,
@@ -136,12 +139,13 @@ class BatchExporter:
                 sample_dir.mkdir(parents=True, exist_ok=True)
 
                 name = f"Sample_{sample.spu_index:03d}"
+                rate = self._sample_lookup.known_sample_rate(hwl, sample.spu_index) or wav_sample_rate
                 self._vag_writer.write_file(
-                    VagSample(data=sample.data),
+                    VagSample(sample_rate=rate, data=sample.data),
                     sample_dir / f"{name}.vag",
                 )
 
-                wav = self._vag_decoder.decode_to_wav(sample.data, wav_sample_rate)
+                wav = self._vag_decoder.decode_to_wav(sample.data, rate)
                 (sample_dir / f"{name}.wav").write_bytes(wav)
 
                 result.samples += 1

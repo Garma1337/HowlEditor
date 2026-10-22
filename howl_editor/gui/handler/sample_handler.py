@@ -1,20 +1,23 @@
 # coding: utf-8
 
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from howl_editor.ctr import constants
 from howl_editor.ctr.formats.bank.models import BankSample
+from howl_editor.ctr.formats.cseq.editor import SampleRetuneResult
 from howl_editor.ctr.formats.howl.collections import HowlCollection
+from howl_editor.ctr.formats.howl.models import OtherFX
 from howl_editor.file_format_registry import FileFormatRegistry
 from howl_editor.gui.command import SwapBlobCommand
 from howl_editor.gui.dialog.copy_target_dialog import (
     CopyTargetContainer, CopyTargetDialog,
 )
-from howl_editor.gui.dialog.replace_sample_dialog import ReplaceSampleDialog
+from howl_editor.gui.dialog.replace_sample_dialog import ReplaceSampleChoice, ReplaceSampleDialog
 from howl_editor.gui.dialog.select_sample_dialog import SelectSampleDialog
-from howl_editor.ps1 import spu
 from howl_editor.ps1.formats.vag.models import VagSample
 from howl_editor.saphi.constants import SAPHI_BANK_MAX_SIZE
 
@@ -47,7 +50,11 @@ class SampleHandler:
             )
 
             if path:
-                self._window._services.resolve("vag_writer").write_file(VagSample(data=sample.data), path)
+                rate = (
+                    self._window._services.resolve("sample_lookup").known_sample_rate(self._window.hwl, sample.spu_index)
+                    or self._window._services.resolve("vag_rate_provider").rate
+                )
+                self._window._services.resolve("vag_writer").write_file(VagSample(sample_rate=rate, data=sample.data), path)
                 self._window._notify(f"Exported SPU {sample.spu_index}")
         except Exception as e:
             QMessageBox.critical(self._window, "Error", f"Export failed:\n{e}")
@@ -68,9 +75,11 @@ class SampleHandler:
             )
 
             if path:
-                wav = self._window._services.resolve("vag_decoder").decode_to_wav(
-                    sample.data, self._window._services.resolve("vag_rate_provider").rate,
+                rate = (
+                    self._window._services.resolve("sample_lookup").known_sample_rate(self._window.hwl, sample.spu_index)
+                    or self._window._services.resolve("vag_rate_provider").rate
                 )
+                wav = self._window._services.resolve("vag_decoder").decode_to_wav(sample.data, rate)
                 Path(path).write_bytes(wav)
                 self._window._notify(f"Exported SPU {sample.spu_index} as WAV")
         except Exception as e:
@@ -111,11 +120,14 @@ class SampleHandler:
                 self._window.hwl.spu_addrs[:] = spu_before
                 return
 
-            self._window._undo_stack.push(
-                SwapBlobCommand(self._window, f"Add Sample to Bank {bank_index}", HowlCollection.BANKS, bank_index, new_blob, old_spu=spu_before),
-            )
-
+            fx_before = self._fx_snapshot()
             self._window._services.resolve("howl_editor").attach_sample_rate(self._window.hwl, spu_index, vag.sample_rate)
+            self._window._undo_stack.push(
+                SwapBlobCommand(
+                    self._window, f"Add Sample to Bank {bank_index}", HowlCollection.BANKS, bank_index, new_blob,
+                    old_spu=spu_before, old_fx=fx_before,
+                ),
+            )
             self._window._notify(f"Added sample SPU {spu_index} to bank {bank_index}")
         except Exception as e:
             QMessageBox.critical(self._window, "Error", f"Add sample failed:\n{e}")
@@ -167,32 +179,46 @@ class SampleHandler:
                 self._window.hwl, bank_index, sample_index, vag.data,
             )
 
-            update_shared = self._confirm_replacement(plan, Path(path).name, bank_index)
+            new_pitch = (
+                self._window._services.resolve("sample_rate_converter").pitch_for_rate(vag.sample_rate)
+                if vag.sample_rate > 0 else None
+            )
+            retuned_songs = (
+                self._retune_songs(plan.spu_index, new_pitch)
+                if new_pitch is not None and plan.spu_index is not None else {}
+            )
+            choice = self._confirm_replacement(
+                plan, Path(path).name, bank_index, sorted(retuned_songs),
+            )
 
-            if update_shared is None:
+            if choice is None:
                 return
 
             self._apply_replacement(
-                plan, vag.data, update_shared, sample_rate=vag.sample_rate,
+                plan, vag.data, choice.update_shared_banks, new_pitch=new_pitch,
+                retuned_songs=retuned_songs if choice.retune_songs else None,
             )
         except Exception as e:
             QMessageBox.critical(self._window, "Error", f"Replace failed:\n{e}")
 
-    def _confirm_replacement(self, plan, source_label: str, bank_index: int) -> bool | None:
-        """Show the one prompt that covers a sample overwrite. None = cancelled,
-        otherwise whether the banks sharing the slot should be rebuilt too."""
+    def _confirm_replacement(
+        self, plan, source_label: str, bank_index: int, retunable_songs: Sequence[int] = (),
+    ) -> ReplaceSampleChoice | None:
+        """Show the one prompt that covers a sample overwrite. None = cancelled."""
         dialog = ReplaceSampleDialog(
             self._window, plan, source_label, self._bank_display(bank_index),
+            retunable_songs,
         )
 
         if dialog.exec() != QDialog.Accepted:
             return None
 
-        return dialog.chosen().update_shared_banks
+        return dialog.chosen()
 
     def _apply_replacement(
         self, plan, new_data: bytes, update_shared: bool,
-        sample_rate: int | None = None, verb: str = "Replaced",
+        new_pitch: int | None = None, verb: str = "Replaced",
+        retuned_songs: dict[int, SampleRetuneResult] | None = None,
     ) -> None:
         """Write the planned replacement. The plan was built against copies, so
         the companion blobs are rebuilt here against the live table — before
@@ -209,34 +235,68 @@ class SampleHandler:
             self._window.hwl.banks[plan.bank_index], self._window.hwl.spu_addrs,
             plan.sample_index, new_data, self._window._services.resolve("bank_reader"),
         )
+        fx_before = self._fx_snapshot()
 
-        self._push_replacement(plan.bank_index, new_blob, companions, spu_before)
+        if new_pitch is not None and plan.spu_index is not None:
+            self._window._services.resolve("howl_editor").set_sample_pitch(
+                self._window.hwl, plan.spu_index, new_pitch,
+            )
 
-        if sample_rate is not None and plan.spu_index is not None:
-            self._propagate_sample_rate_to_fx(plan.spu_index, sample_rate)
-
+        self._push_replacement(plan.bank_index, new_blob, companions, spu_before, fx_before, retuned_songs)
         self._window._notify(
-            self._replace_message(plan.bank_index, plan.sample_index, companions, verb),
+            self._replace_message(plan.bank_index, plan.sample_index, companions, verb, retuned_songs),
         )
         self._warn_if_bank_oversized(plan.bank_index, len(new_blob))
 
+    def _retune_songs(self, spu_index: int, new_pitch: int) -> dict[int, SampleRetuneResult]:
+        """song_index → blob with every descriptor playing `spu_index` moved
+        onto the new sample's rate. The old sample's rate is taken from the
+        pitch the file already plays it at (FX first, as everywhere else), and
+        each descriptor is scaled by new/old so pitched variants of one sample
+        keep their spacing.
+
+        Must run before the FX pitch is updated, which would otherwise hand
+        back the new pitch as the old one."""
+        old_pitch = self._known_pitch(spu_index)
+
+        if not old_pitch or new_pitch <= 0 or new_pitch == old_pitch:
+            return {}
+
+        editor = self._window._services.resolve("cseq_editor")
+        retuned: dict[int, SampleRetuneResult] = {}
+
+        for song_index, song_blob in enumerate(self._window.hwl.songs):
+            try:
+                result = editor.retune_sample(song_blob, spu_index, new_pitch / old_pitch)
+            except Exception:
+                continue
+
+            if result is not None:
+                retuned[song_index] = result
+
+        return retuned
+
     def _push_replacement(
         self, bank_index: int, new_blob: bytes, companions: dict[int, bytes],
-        spu_before: list,
+        spu_before: list, fx_before: list[OtherFX],
+        retuned_songs: dict[int, SampleRetuneResult] | None = None,
     ) -> None:
-        """One undo step covers the edit and every bank dragged along with it,
+        """One undo step covers the edit and every bank and song dragged along with it,
         so undoing can't leave the file half-propagated."""
         stack = self._window._undo_stack
 
         # Each push redoes immediately, so without one scope around them the
         # views would update once per bank sharing the sample.
         with self._window.batched_changes():
-            if companions:
-                stack.beginMacro(f"Replace Sample in Bank {bank_index} (+{len(companions)} shared)")
+            grouped = bool(companions or retuned_songs)
+
+            if grouped:
+                shared = f" (+{len(companions)} shared)" if companions else ""
+                stack.beginMacro(f"Replace Sample in Bank {bank_index}{shared}")
 
             stack.push(SwapBlobCommand(
                 self._window, f"Replace Sample in Bank {bank_index}",
-                HowlCollection.BANKS, bank_index, new_blob, old_spu=spu_before,
+                HowlCollection.BANKS, bank_index, new_blob, old_spu=spu_before, old_fx=fx_before,
             ))
 
             for other_index, blob in companions.items():
@@ -245,19 +305,32 @@ class SampleHandler:
                     HowlCollection.BANKS, other_index, blob, snapshot_spu=False,
                 ))
 
-            if companions:
+            for song_index, result in (retuned_songs or {}).items():
+                stack.push(SwapBlobCommand(
+                    self._window, f"Retune Song {song_index} to New Sample",
+                    HowlCollection.SONGS, song_index, result.blob,
+                ))
+
+            if grouped:
                 stack.endMacro()
 
     def _replace_message(
         self, bank_index: int, sample_index: int, companions: dict[int, bytes],
-        verb: str = "Replaced",
+        verb: str = "Replaced", retuned_songs: dict[int, SampleRetuneResult] | None = None,
     ) -> str:
         base = f"{verb} sample {sample_index} in bank {bank_index}"
 
-        if not companions:
-            return base
+        if companions:
+            base = f"{base} (also updated bank(s) {sorted(companions)})"
 
-        return f"{base} (also updated bank(s) {sorted(companions)})"
+        if retuned_songs:
+            base = f"{base}; retuned its instruments in song(s) {sorted(retuned_songs)}"
+            held = sum(result.held for result in retuned_songs.values())
+
+            if held:
+                base = f"{base} — {held} held at the SPU's 4× pitch ceiling"
+
+        return base
 
     def _find_spu_index(self, bank_index: int, sample_index: int) -> int | None:
         try:
@@ -271,15 +344,6 @@ class SampleHandler:
             pass
 
         return None
-
-    def _propagate_sample_rate_to_fx(self, spu_index: int, sample_rate: int) -> None:
-        if sample_rate <= 0:
-            return
-
-        pitch = int(round(sample_rate / spu.SAMPLE_RATE * spu.FREQUENCY_UNIT))
-        for fx in self._window.hwl.other_fx:
-            if fx.spu_index == spu_index:
-                fx.pitch = pitch
 
     def _warn_if_bank_oversized(self, bank_index: int, bank_size: int) -> None:
         if bank_size <= SAPHI_BANK_MAX_SIZE:
@@ -388,10 +452,19 @@ class SampleHandler:
             self._window.hwl.spu_addrs[:] = spu_before
             return
 
+        fx_before = self._fx_snapshot()
+        source_pitch = self._known_pitch(src.spu_index)
+
+        if spu_index != src.spu_index and source_pitch is not None:
+            self._window._services.resolve("howl_editor").attach_sample_pitch(
+                self._window.hwl, spu_index, source_pitch,
+            )
+
         self._window._undo_stack.push(SwapBlobCommand(
             self._window, f"Copy sample into Bank {target_bank}",
-            HowlCollection.BANKS, target_bank, new_blob, old_spu=spu_before,
+            HowlCollection.BANKS, target_bank, new_blob, old_spu=spu_before, old_fx=fx_before,
         ))
+
         self._window._notify(
             f"Copied sample into bank {target_bank} as SPU #{spu_index}",
         )
@@ -403,14 +476,34 @@ class SampleHandler:
         plan = self._window._services.resolve("sample_replacement_planner").plan(
             self._window.hwl, target_bank, target_sample, src.data,
         )
-        update_shared = self._confirm_replacement(
-            plan, f"SPU #{src.spu_index}", target_bank,
+        source_pitch = self._known_pitch(src.spu_index)
+        retuned_songs = (
+            self._retune_songs(plan.spu_index, source_pitch)
+            if source_pitch is not None and plan.spu_index is not None else {}
+        )
+        choice = self._confirm_replacement(
+            plan, f"SPU #{src.spu_index}", target_bank, sorted(retuned_songs),
         )
 
-        if update_shared is None:
+        if choice is None:
             return
 
-        self._apply_replacement(plan, src.data, update_shared, verb="Copied over")
+        self._apply_replacement(
+            plan, src.data, choice.update_shared_banks, new_pitch=source_pitch,
+            verb="Copied over", retuned_songs=retuned_songs if choice.retune_songs else None,
+        )
+
+    def _known_pitch(self, spu_index: int) -> int | None:
+        """The pitch the file already plays a sample at, or None when nothing
+        references it."""
+        return self._window._services.resolve("sample_lookup").sample_pitch_map(
+            self._window.hwl,
+        ).get(spu_index)
+
+    def _fx_snapshot(self) -> list[OtherFX]:
+        """OtherFX as it is now, for an undo step that is about to change it
+        in place."""
+        return [replace(fx) for fx in self._window.hwl.other_fx]
 
     def remove_sample(self, bank_index: int, sample_index: int):
         if not self._window.hwl:

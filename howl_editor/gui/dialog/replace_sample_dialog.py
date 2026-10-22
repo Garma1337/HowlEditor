@@ -1,9 +1,10 @@
 # coding: utf-8
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QGroupBox, QLabel, QRadioButton, QVBoxLayout,
+    QCheckBox, QDialog, QDialogButtonBox, QGroupBox, QLabel, QRadioButton, QVBoxLayout,
 )
 
 from howl_editor.ctr.analysis.sample_replacement_planner import SampleReplacementPlan
@@ -14,6 +15,7 @@ from howl_editor.saphi.constants import SAPHI_BANK_MAX_SIZE
 @dataclass(frozen=True)
 class ReplaceSampleChoice:
     update_shared_banks: bool
+    retune_songs: bool = False
 
 
 class ReplaceSampleDialog(QDialog):
@@ -23,17 +25,23 @@ class ReplaceSampleDialog(QDialog):
     used to arrive as three dialogs in a row, each answerable only in the dark.
     Here they are one screen: the facts, the one real decision, and Replace."""
 
-    def __init__(self, parent, plan: SampleReplacementPlan, file_name: str, bank_label: str):
+    def __init__(
+        self, parent, plan: SampleReplacementPlan, file_name: str, bank_label: str,
+        retunable_songs: Sequence[int] = (),
+    ):
         super().__init__(parent)
         self.setWindowTitle("Replace sample")
         self.resize(WindowSize.REPLACE_SAMPLE_WIDTH, WindowSize.REPLACE_SAMPLE_HEIGHT)
         self._plan = plan
+        self._retunable_songs = list(retunable_songs)
         self._update_shared = None
+        self._retune = None
         self._build_ui(file_name, bank_label)
 
     def chosen(self) -> ReplaceSampleChoice:
         return ReplaceSampleChoice(
             update_shared_banks=self._update_shared.isChecked() if self._update_shared else False,
+            retune_songs=self._retune.isChecked() if self._retune else False,
         )
 
     def _build_ui(self, file_name: str, bank_label: str) -> None:
@@ -43,6 +51,9 @@ class ReplaceSampleDialog(QDialog):
 
         if self._plan.needs_shared_choice:
             layout.addWidget(self._shared_group())
+
+        if self._retunable_songs:
+            layout.addWidget(self._retune_checkbox())
 
         if self._plan.exceeds_bank_limit:
             layout.addWidget(self._limit_label())
@@ -108,6 +119,22 @@ class ReplaceSampleDialog(QDialog):
         box.addWidget(QRadioButton(f"Replace in this bank only — leaves {left_alone} mis-cut"))
 
         return group
+
+    def _retune_checkbox(self) -> QCheckBox:
+        """Offered only when the new file's rate differs from the one the
+        songs already play this sample at — otherwise there is nothing to
+        decide."""
+        songs = ", ".join(str(i) for i in self._retunable_songs)
+        noun = "song" if len(self._retunable_songs) == 1 else "songs"
+        self._retune = QCheckBox(f"Retune {noun} {songs} to the new file's sample rate")
+        self._retune.setToolTip(
+            "Every instrument and percussion playing this sample has its pitch "
+            "scaled by new rate ÷ old rate, so descriptors "
+            "playing this sample at different pitches stay the same interval "
+            "apart. Untick to keep the current pitch values."
+        )
+        self._retune.setChecked(True)
+        return self._retune
 
     def _limit_label(self) -> QLabel:
         label = QLabel(f"⚠️ {self._plan.bank_size.warning_text}")

@@ -16,7 +16,13 @@ container.register_lazy(
 )
 container.register_lazy("howl_reader", "howl_editor.ctr.formats.howl.reader:HowlReader")
 container.register_lazy("howl_writer", "howl_editor.ctr.formats.howl.writer:HowlWriter")
-container.register_lazy("howl_editor", "howl_editor.ctr.formats.howl.editor:HowlEditor")
+container.register_lazy(
+    "sample_rate_converter", "howl_editor.ctr.voice.sample_rate_converter:SampleRateConverter",
+)
+container.register_lazy(
+    "howl_editor", "howl_editor.ctr.formats.howl.editor:HowlEditor",
+    "sample_rate_converter",
+)
 container.register_lazy(
     "cseq_reader", "howl_editor.ctr.formats.cseq.reader:CseqReader",
     "vlq_codec",
@@ -237,6 +243,7 @@ container.register_lazy(
     "vag_decoder",
     "sample_classifier",
     "midi_exporter",
+    "sample_lookup",
 )
 container.register_lazy(
     "template_engine", "howl_editor.core.template_engine:TemplateEngine",

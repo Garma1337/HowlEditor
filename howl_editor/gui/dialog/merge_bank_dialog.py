@@ -2,17 +2,16 @@
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
-    QListWidgetItem, QPushButton, QDialogButtonBox, QGroupBox,
-    QAbstractItemView, QMessageBox
+    QVBoxLayout, QHBoxLayout, QListWidgetItem, QAbstractItemView, QMessageBox
 )
 
 from howl_editor.ctr.formats.bank.models import BankSample
 from howl_editor.ctr.formats.howl.models import SpuAddrEntry
-from howl_editor.gui.layout import WindowSize
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
+from howl_editor.gui.layout import DialogSpacing, WindowSize
 
 
-class MergeBankDialog(QDialog):
+class MergeBankDialog(StyledDialog):
 
     def __init__(
         self,
@@ -23,71 +22,71 @@ class MergeBankDialog(QDialog):
         target_label: str = "Target",
         source_label: str = "Source",
     ):
-        super().__init__(parent)
-        self.setWindowTitle(f"Merge Bank: {source_label} into {target_label}")
+        super().__init__(parent, f"Merge Bank: {source_label} into {target_label}")
         self.resize(WindowSize.MERGE_BANK_WIDTH, WindowSize.MERGE_BANK_HEIGHT)
 
         self._spu_addrs = spu_addrs
         self._source_pool: list[BankSample] = list(source_samples)
 
-        layout = QVBoxLayout(self)
-        layout.addLayout(self._build_panels(target_label, source_label))
-        layout.addWidget(self._build_buttons())
+        self.add_header(
+            f"Merge {source_label} into {target_label}",
+            f"Add samples from {source_label} on the left to the result on the "
+            f"right, then reorder or remove them. The result replaces {target_label}.",
+        )
+        self._body.addLayout(self._build_panels(target_label, source_label), stretch=1)
+        self.add_footer(self.buttons("🔀  Merge", on_accept=self._on_accept))
 
         self._populate_result(target_samples, "target")
         self._populate_source()
 
     def _build_panels(self, target_label: str, source_label: str) -> QHBoxLayout:
         panels = QHBoxLayout()
+        panels.setSpacing(DialogSpacing.SECTION)
 
-        source_group = QGroupBox(f"Available ({source_label})")
-        source_layout = QVBoxLayout()
-        self._source_list = QListWidget()
+        source_layout = self._panel(f"Available ({source_label})")
+        self._source_list = self.pick_list()
         self._source_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         source_layout.addWidget(self._source_list)
-        source_group.setLayout(source_layout)
 
         center = QVBoxLayout()
+        center.setSpacing(DialogSpacing.BUTTONS)
         center.addStretch()
-        self._btn_add = QPushButton("Add \u2192")
-        self._btn_add.clicked.connect(self._on_add)
+        self._btn_add = self.action_button("➕  Add", on_click=self._on_add)
         center.addWidget(self._btn_add)
-        self._btn_replace = QPushButton("Replace \u2194")
-        self._btn_replace.setToolTip("Replace selected result entry with selected source entry")
-        self._btn_replace.clicked.connect(self._on_replace)
+        self._btn_replace = self.action_button(
+            "🔁  Replace", "Replace selected result entry with selected source entry",
+            self._on_replace,
+        )
         center.addWidget(self._btn_replace)
         center.addStretch()
 
-        result_group = QGroupBox(f"Result ({target_label})")
-        result_layout = QVBoxLayout()
-        self._result_list = QListWidget()
+        result_layout = self._panel(f"Result ({target_label})")
+        self._result_list = self.pick_list()
         self._result_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._result_list.setDragDropMode(QAbstractItemView.InternalMove)
         result_layout.addWidget(self._result_list)
 
         btn_row = QHBoxLayout()
-        self._btn_up = QPushButton("\u2191 Up")
-        self._btn_up.clicked.connect(self._on_move_up)
+        btn_row.setSpacing(DialogSpacing.BUTTONS)
+        self._btn_up = self.action_button("⬆️  Up", on_click=self._on_move_up)
         btn_row.addWidget(self._btn_up)
-        self._btn_down = QPushButton("\u2193 Down")
-        self._btn_down.clicked.connect(self._on_move_down)
+        self._btn_down = self.action_button("⬇️  Down", on_click=self._on_move_down)
         btn_row.addWidget(self._btn_down)
-        self._btn_remove = QPushButton("Remove")
-        self._btn_remove.clicked.connect(self._on_remove)
+        btn_row.addStretch(1)
+        self._btn_remove = self.action_button("🗑️  Remove", on_click=self._on_remove)
         btn_row.addWidget(self._btn_remove)
         result_layout.addLayout(btn_row)
-        result_group.setLayout(result_layout)
 
-        panels.addWidget(source_group, 1)
+        panels.addLayout(source_layout, 1)
         panels.addLayout(center)
-        panels.addWidget(result_group, 1)
+        panels.addLayout(result_layout, 1)
         return panels
 
-    def _build_buttons(self) -> QDialogButtonBox:
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        return buttons
+    def _panel(self, title: str) -> QVBoxLayout:
+        layout = QVBoxLayout()
+        layout.setSpacing(DialogSpacing.BUTTONS)
+        layout.addWidget(self.section_title(title))
+        return layout
 
     def _format_sample(self, sample: BankSample, origin: str) -> str:
         size = len(sample.data)

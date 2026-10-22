@@ -4,17 +4,17 @@ from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QVBoxLayout,
+    QAbstractItemView, QCheckBox, QLineEdit, QListWidgetItem,
 )
 
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
 from howl_editor.gui.layout import WindowSize
 from howl_editor.gui.sample_choice import SampleChoice
 
 __all__ = ["SampleChoice", "SelectSampleDialog"]
 
 
-class SelectSampleDialog(QDialog):
+class SelectSampleDialog(StyledDialog):
 
     FREE_MARK = "  ·  🆓 free"
 
@@ -28,14 +28,13 @@ class SelectSampleDialog(QDialog):
         on_preview: Callable[[int], None] | None = None,
         pitch_option: str | None = None,
     ):
-        super().__init__(parent)
-        self.setWindowTitle(title)
+        super().__init__(parent, title)
         self.resize(WindowSize.SELECT_SAMPLE_WIDTH, WindowSize.SELECT_SAMPLE_HEIGHT)
         self._choices = choices
         self._current = current_spu_index
         self._on_preview = on_preview
         self._pitch_option = None
-        self._build_ui(prompt, pitch_option)
+        self._build_ui(title, prompt, pitch_option)
 
     def chosen_spu_index(self) -> int | None:
         item = self._list.currentItem()
@@ -49,45 +48,36 @@ class SelectSampleDialog(QDialog):
         sample's pitch."""
         return self._pitch_option is not None and self._pitch_option.isChecked()
 
-    def _build_ui(self, prompt: str, pitch_option: str | None) -> None:
-        layout = QVBoxLayout(self)
-
-        header = QLabel(prompt)
-        header.setWordWrap(True)
-        layout.addWidget(header)
+    def _build_ui(self, title: str, prompt: str, pitch_option: str | None) -> None:
+        self.add_header(title, prompt)
 
         self._filter = QLineEdit()
         self._filter.setPlaceholderText("Filter…")
+        self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter)
+        self._body.addWidget(self._filter)
 
-        self._list = QListWidget()
-        layout.addWidget(self._list, stretch=1)
+        self._list = self.pick_list()
+        self._body.addWidget(self._list, stretch=1)
         self._list.itemDoubleClicked.connect(lambda _item: self.accept())
         self._populate()
 
         if pitch_option is not None:
             self._pitch_option = QCheckBox(pitch_option)
             self._pitch_option.setChecked(True)
-            layout.addWidget(self._pitch_option)
+            self._body.addWidget(self._pitch_option)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        leading = []
 
         if self._on_preview is not None:
-            row = QHBoxLayout()
-            self._preview_button = QPushButton("▶️ Preview")
-            self._preview_button.setToolTip(
+            self._preview_button = self.action_button(
+                "▶️  Preview",
                 "Play the highlighted sample so you can hear it before picking.",
+                self._preview_selected,
             )
-            self._preview_button.clicked.connect(self._preview_selected)
-            row.addWidget(self._preview_button)
-            row.addStretch()
-            row.addWidget(buttons)
-            layout.addLayout(row)
-        else:
-            layout.addWidget(buttons, alignment=Qt.AlignRight)
+            leading.append(self._preview_button)
+
+        self.add_footer(self.buttons("✅  Select"), *leading)
 
     def _preview_selected(self) -> None:
         spu_index = self.chosen_spu_index()

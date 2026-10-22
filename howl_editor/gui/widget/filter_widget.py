@@ -28,7 +28,7 @@ class FilterWidget(QWidget):
         self._input.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._input)
 
-        self._clear_btn = QPushButton("Clear")
+        self._clear_btn = QPushButton("🧹  Clear")
         self._clear_btn.clicked.connect(self._clear)
         layout.addWidget(self._clear_btn)
 

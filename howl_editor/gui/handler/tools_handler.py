@@ -4,11 +4,12 @@ import traceback
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog, QInputDialog
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog
 
 from howl_editor.ctr import constants
 from howl_editor.ctr.diagnostics.spu_slot_guard import SpuSlotLimitError
 from howl_editor.file_format_registry import FileFormatRegistry
+from howl_editor.gui.dialog.choice_dialog import ChoiceDialog, ChoiceField
 from howl_editor.gui.dialog.convert_midi_dialog import ConvertMidiDialog
 from howl_editor.gui.dialog.diagnosis_report_dialog import DiagnosisReportDialog
 from howl_editor.gui.dialog.saphi_export_dialog import SaphiExportDialog
@@ -111,22 +112,17 @@ class ToolsHandler:
         if not self._window.hwl or not self._window._services.resolve("validator"):
             return
 
-        bank_indices = list(range(len(self._window.hwl.banks)))
-        bank_labels = [self._window._get_item_label("Bank", i, self._window._services.resolve("bank_reader").get_name(i)) for i in bank_indices]
-        bank_label, ok = QInputDialog.getItem(self._window, "Validate", "Select bank:", bank_labels, 0, False)
+        bank_labels = [self._window._get_item_label("Bank", i, self._window._services.resolve("bank_reader").get_name(i)) for i in range(len(self._window.hwl.banks))]
+        song_labels = [self._window._get_item_label("Song", i, self._window._services.resolve("cseq_reader").get_name(i)) for i in range(len(self._window.hwl.songs))]
+        dialog = ChoiceDialog(
+            self._window, "Validate", "Check that every sample a song needs is in the bank.",
+            [ChoiceField("Bank:", bank_labels), ChoiceField("Song:", song_labels)], "🔍  Validate",
+        )
 
-        if not ok:
+        if dialog.exec() != QDialog.Accepted:
             return
 
-        song_indices = list(range(len(self._window.hwl.songs)))
-        song_labels = [self._window._get_item_label("Song", i, self._window._services.resolve("cseq_reader").get_name(i)) for i in song_indices]
-        song_label, ok = QInputDialog.getItem(self._window, "Validate", "Select song:", song_labels, 0, False)
-
-        if not ok:
-            return
-
-        bank_idx = bank_indices[bank_labels.index(bank_label)]
-        song_idx = song_indices[song_labels.index(song_label)]
+        bank_idx, song_idx = dialog.chosen()
 
         try:
             result = self._window._services.resolve("validator").validate(

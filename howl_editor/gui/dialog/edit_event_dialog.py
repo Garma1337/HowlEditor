@@ -2,14 +2,11 @@
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QSpinBox,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QComboBox, QLabel, QSpinBox
 
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
 from howl_editor.ctr.formats.cseq.models import CseqEventType
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
 from howl_editor.gui.layout import WindowSize
 
 _EVENT_LABELS: dict[CseqEventType, str] = {
@@ -33,7 +30,7 @@ class EventEditResult:
     delta: int
 
 
-class EditEventDialog(QDialog):
+class EditEventDialog(StyledDialog):
     """Edit one CSEQ event's parameter bytes, or build a new one to insert.
 
     Passing `event_type` pins the dialog to that opcode (edit mode); passing
@@ -53,15 +50,12 @@ class EditEventDialog(QDialog):
         is_drum: bool = False,
         descriptor_count: int = 0,
     ):
-        super().__init__(parent)
-        self._insert_mode = event_type is None
+        insert_mode = event_type is None
+        super().__init__(parent, "Insert event" if insert_mode else "Edit event")
+        self._insert_mode = insert_mode
         self._is_drum = is_drum
         self._descriptor_count = descriptor_count
-        self.setWindowTitle("Insert event" if self._insert_mode else "Edit event")
-        self.resize(
-            WindowSize.EDIT_INSTRUMENT_WIDTH,
-            WindowSize.EDIT_INSTRUMENT_HEIGHT_WITH_ADSR,
-        )
+        self.setMinimumWidth(WindowSize.EDIT_INSTRUMENT_WIDTH)
         self._build_ui(event_type, pitch, velocity, delta)
 
     def chosen(self) -> EventEditResult:
@@ -75,14 +69,10 @@ class EditEventDialog(QDialog):
     def _build_ui(
         self, event_type: CseqEventType | None, pitch: int, velocity: int, delta: int,
     ) -> None:
-        layout = QVBoxLayout(self)
+        self._blurb = self.add_header(self.windowTitle(), " ")
 
-        self._blurb = QLabel()
-        self._blurb.setWordWrap(True)
-        layout.addWidget(self._blurb)
-
-        form = QFormLayout()
-        layout.addLayout(form)
+        form = self.form()
+        self._body.addLayout(form)
 
         self._type_combo: QComboBox | None = None
         self._fixed_type = event_type
@@ -104,10 +94,8 @@ class EditEventDialog(QDialog):
         self._pitch_row_label = QLabel("Value:")
         form.addRow(self._pitch_row_label, self._pitch)
 
-        self._hint = QLabel()
-        self._hint.setAlignment(Qt.AlignRight)
-        self._hint.setWordWrap(True)
-        form.addRow("Meaning:", self._hint)
+        self._hint = self.hint()
+        form.addRow("", self._hint)
 
         self._velocity = QSpinBox()
         self._velocity.setRange(0, cseq_fmt.CC_MAX)
@@ -125,10 +113,7 @@ class EditEventDialog(QDialog):
         )
         form.addRow("Delta (ticks):", self._delta)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons, alignment=Qt.AlignRight)
+        self.add_footer(self.buttons("➕  Insert" if self._insert_mode else "💾  Save"))
 
         self._refresh()
 
@@ -142,7 +127,7 @@ class EditEventDialog(QDialog):
         event_type = self._current_type()
 
         self._pitch_row_label.setText(self._pitch_label(event_type))
-        self._hint.setText(self.describe(event_type, self._pitch.value(), self._is_drum))
+        self._hint.setText(f"= {self.describe(event_type, self._pitch.value(), self._is_drum)}")
         self._blurb.setText(self._blurb_for(event_type))
 
         # Only NOTE_ON carries a second parameter byte.

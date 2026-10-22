@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QInputDialog
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
 from howl_editor.ctr.formats.cseq.models import (
@@ -11,12 +11,14 @@ from howl_editor.ctr.formats.cseq.models import (
 from howl_editor.ctr.formats.howl.collections import HowlCollection
 from howl_editor.file_format_registry import FileFormatRegistry
 from howl_editor.gui.command import RemoveItemCommand, SwapBlobCommand
+from howl_editor.gui.dialog.choice_dialog import ChoiceDialog, ChoiceField
 from howl_editor.gui.dialog.convert_midi_dialog import ConvertMidiDialog
 from howl_editor.gui.dialog.copy_target_dialog import (
     CopyTargetContainer, CopyTargetDialog,
 )
 from howl_editor.gui.dialog.edit_instrument_dialog import EditInstrumentDialog
 from howl_editor.gui.dialog.midi_export_options_dialog import MidiExportOptionsDialog
+from howl_editor.gui.dialog.number_dialog import NumberDialog
 from howl_editor.gui.dialog.select_sample_dialog import (
     SampleChoice, SelectSampleDialog,
 )
@@ -235,18 +237,29 @@ class SongHandler:
 
         source_seq_index = 0
         if len(source_cseq.songs) > 1:
-            labels = [f"Sequence {i} (BPM={s.bpm}, {len(s.tracks)} tracks)"
-                      for i, s in enumerate(source_cseq.songs)]
-            label, ok = QInputDialog.getItem(
-                self._w, "Select Sequence", "Pick sequence from source:", labels, 0, False,
-            )
+            source_seq_index = self._pick_source_sequence(source_cseq)
 
-            if not ok:
+            if source_seq_index is None:
                 return None
 
-            source_seq_index = labels.index(label)
-
         return source_cseq.songs[source_seq_index]
+
+    def _pick_source_sequence(self, source_cseq) -> int | None:
+        """Which of a multi-sequence CSEQ's sequences to take. None when
+        cancelled."""
+        labels = [
+            f"Sequence {i} (BPM={s.bpm}, {len(s.tracks)} tracks)"
+            for i, s in enumerate(source_cseq.songs)
+        ]
+        dialog = ChoiceDialog(
+            self._w, "Select sequence", "This CSEQ holds more than one sequence.",
+            [ChoiceField("Sequence:", labels)], "✅  Use sequence",
+        )
+
+        if dialog.exec() != QDialog.Accepted:
+            return None
+
+        return dialog.chosen()[0]
 
     def _paired_bank(self, song_index: int) -> int | None:
         if self._w._services.resolve("stock_layout") is None:
@@ -339,14 +352,16 @@ class SongHandler:
             return
 
         kind = "percussion" if percussion else "instruments"
-        volume, ok = QInputDialog.getInt(
-            self._w, "Set volume",
-            f"Volume for {len(indices)} selected {kind} (0-{cseq_fmt.MAX_VOLUME}):",
-            cseq_fmt.MAX_VOLUME, 0, cseq_fmt.MAX_VOLUME,
+        dialog = NumberDialog(
+            self._w, "Set volume", f"Give the {len(indices)} selected {kind} the same volume.",
+            "Volume:", cseq_fmt.MAX_VOLUME, 0, cseq_fmt.MAX_VOLUME,
+            suffix=f" / {cseq_fmt.MAX_VOLUME}", primary_text="✅  Apply",
         )
 
-        if not ok:
+        if dialog.exec() != QDialog.Accepted:
             return
+
+        volume = dialog.value()
 
         try:
             set_volumes = (
@@ -514,16 +529,16 @@ class SongHandler:
 
         if len(note_tracks) > 1:
             labels = [f"Track {t.index} — {t.name} ({t.note_count} notes)" for t in note_tracks]
-            label, ok = QInputDialog.getItem(
+            dialog = ChoiceDialog(
                 self._w, "Pick MIDI track",
                 "Which MIDI track should replace the CSEQ track's events?",
-                labels, 0, False,
+                [ChoiceField("MIDI track:", labels)], "🔁  Replace",
             )
 
-            if not ok:
+            if dialog.exec() != QDialog.Accepted:
                 return
 
-            midi_track_index = note_tracks[labels.index(label)].index
+            midi_track_index = note_tracks[dialog.chosen()[0]].index
 
         try:
             cseq = self._w._services.resolve("cseq_reader").read(self._w.hwl.songs[song_index])
@@ -831,16 +846,10 @@ class SongHandler:
             source_seq_index = 0
 
             if len(source_cseq.songs) > 1:
-                labels = [f"Sequence {i} (BPM={s.bpm}, {len(s.tracks)} tracks)"
-                          for i, s in enumerate(source_cseq.songs)]
-                label, ok = QInputDialog.getItem(
-                    self._w, "Select Sequence", "Pick sequence from source:", labels, 0, False,
-                )
+                source_seq_index = self._pick_source_sequence(source_cseq)
 
-                if not ok:
+                if source_seq_index is None:
                     return
-
-                source_seq_index = labels.index(label)
 
             new_blob = self._w._services.resolve("cseq_editor").append_sequence(
                 self._w.hwl.songs[song_index], source_cseq.songs[source_seq_index],

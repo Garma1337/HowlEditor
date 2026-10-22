@@ -1,22 +1,20 @@
 # coding: utf-8
 
-from PySide6.QtWidgets import (
-    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QPushButton, QVBoxLayout,
-)
+from PySide6.QtWidgets import QApplication, QListWidget, QListWidgetItem
 
 from howl_editor.ctr.diagnostics.howl_diagnostics import DiagnosisReport, Severity
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
+from howl_editor.gui.layout import WindowSize
 from howl_editor.gui.severity_presenter import SeverityPresenter
 
 
-class DiagnosisReportDialog(QDialog):
+class DiagnosisReportDialog(StyledDialog):
     """Shows a whole-file diagnosis: a severity-count header and every finding,
     most severe first, with a button to copy the report as plain text."""
 
     def __init__(self, parent, report: DiagnosisReport, severity_presenter: SeverityPresenter | None = None):
-        super().__init__(parent)
-        self.setWindowTitle("HOWL Diagnosis")
-        self.resize(720, 480)
+        super().__init__(parent, "HOWL Diagnosis")
+        self.resize(WindowSize.DIAGNOSIS_WIDTH, WindowSize.DIAGNOSIS_HEIGHT)
         self._report = report
         self._presenter = severity_presenter or SeverityPresenter()
         self._build_ui()
@@ -25,41 +23,29 @@ class DiagnosisReportDialog(QDialog):
         return self._presenter.emoji(severity)
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-
         counts = self._report.counts()
-        header = QLabel(
-            f"{self._icon(Severity.ERROR)} {counts[Severity.ERROR]} errors      "
-            f"{self._icon(Severity.WARNING)} {counts[Severity.WARNING]} warnings      "
+        summary = (
+            f"{self._icon(Severity.ERROR)} {counts[Severity.ERROR]} errors  ·  "
+            f"{self._icon(Severity.WARNING)} {counts[Severity.WARNING]} warnings  ·  "
             f"{self._icon(Severity.INFO)} {counts[Severity.INFO]} info"
         )
-        layout.addWidget(header)
 
         if counts[Severity.ERROR] == 0 and counts[Severity.WARNING] == 0:
-            subtitle = QLabel("No issues found. 🎉")
+            subtitle = f"{summary}<br>No issues found. 🎉"
         else:
-            subtitle = QLabel("Items that may crash the game or sound wrong in-game:")
+            subtitle = f"{summary}<br>Items that may crash the game or sound wrong in-game:"
 
-        subtitle.setWordWrap(True)
-        layout.addWidget(subtitle)
+        self.add_header("HOWL diagnosis", subtitle)
 
         self._list = QListWidget()
         self._list.setWordWrap(True)
-        layout.addWidget(self._list, stretch=1)
+        self._body.addWidget(self._list, stretch=1)
         self._populate()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-
-        copy_button = QPushButton("Copy to clipboard")
-        copy_button.clicked.connect(self._copy_to_clipboard)
-
-        row = QHBoxLayout()
-        row.addWidget(copy_button)
-        row.addStretch()
-        row.addWidget(buttons)
-        layout.addLayout(row)
+        self.add_footer(
+            self.buttons("✅  Done", cancel=False),
+            self.action_button("📋  Copy to clipboard", on_click=self._copy_to_clipboard),
+        )
 
     def _populate(self) -> None:
         for finding in self._report.findings:

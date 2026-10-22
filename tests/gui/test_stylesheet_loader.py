@@ -36,6 +36,13 @@ class TestLoad:
         assert "red" in loader.load("card.qss")
         assert "blue" in loader.load("panel.qss")
 
+    def test_resolves_images_next_to_the_stylesheet(self, qss_dir):
+        (qss_dir / "box.qss").write_text("QCheckBox::indicator { image: url(\"$qss_dir/check.png\"); }", encoding="utf-8")
+
+        text = StylesheetLoader(qss_dir).load("box.qss")
+
+        assert f'url("{qss_dir.resolve().as_posix()}/check.png")' in text
+
     def test_missing_file_raises(self, qss_dir):
         loader = StylesheetLoader(qss_dir)
 

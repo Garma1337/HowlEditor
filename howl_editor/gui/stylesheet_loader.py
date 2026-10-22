@@ -11,12 +11,15 @@ class StylesheetLoader:
     `TemplateEngine` for their HTML templates.
     """
 
+    DIR_TOKEN = "$qss_dir"
+
     def __init__(self, qss_dir: str | Path):
         self._dir = Path(qss_dir)
         self._cache: dict[str, str] = {}
 
     def load(self, name: str) -> str:
         if name not in self._cache:
-            self._cache[name] = (self._dir / name).read_text(encoding="utf-8")
+            text = (self._dir / name).read_text(encoding="utf-8")
+            self._cache[name] = text.replace(self.DIR_TOKEN, self._dir.resolve().as_posix())
 
         return self._cache[name]

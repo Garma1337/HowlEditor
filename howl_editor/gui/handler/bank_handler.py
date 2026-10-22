@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog, QInputDialog
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QDialog
 
 from howl_editor.ctr.formats.howl.collections import HowlCollection
 from howl_editor.file_format_registry import FileFormatRegistry
 from howl_editor.gui.command import RemoveItemCommand, SwapBlobCommand
+from howl_editor.gui.dialog.choice_dialog import ChoiceDialog, ChoiceField
 from howl_editor.gui.dialog.merge_bank_dialog import MergeBankDialog
 from howl_editor.ps1.formats.vag.models import VagSample
 
@@ -99,14 +100,15 @@ class BankHandler:
         bank_indices = [i for i in range(len(self._window.hwl.banks)) if i != index]
         bank_labels = [self._window._get_item_label("Bank", i, self._window._services.resolve("bank_reader").get_name(i)) for i in bank_indices]
 
-        label, ok = QInputDialog.getItem(
-            self._window, "Select Source Bank", f"Merge into Bank {index} from:", bank_labels, 0, False,
+        dialog = ChoiceDialog(
+            self._window, "Merge bank", f"Pick the bank whose samples to merge into Bank {index}.",
+            [ChoiceField("Source bank:", bank_labels)], "➡️  Continue…",
         )
 
-        if not ok:
+        if dialog.exec() != QDialog.Accepted:
             return
 
-        source_index = bank_indices[bank_labels.index(label)]
+        source_index = bank_indices[dialog.chosen()[0]]
 
         try:
             target_samples = self._window._services.resolve("bank_reader").parse(self._window.hwl.banks[index], self._window.hwl.spu_addrs)

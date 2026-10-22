@@ -2,19 +2,20 @@
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel, QListWidget,
-    QListWidgetItem, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, )
+    QDialog, QHBoxLayout, QHeaderView, QListWidgetItem, QSplitter,
+    QTableWidget, QTableWidgetItem, QVBoxLayout,
+)
 
 from howl_editor.ctr.formats.cseq.models import (
     CSEQ_EDITABLE_EVENTS, CSEQ_EVENT_PARAMS, CseqEventType, CseqSong,
 )
 from howl_editor.gui.dialog.edit_event_dialog import EditEventDialog
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
 from howl_editor.gui.handler.sequence_event_editor import SequenceEventEditor
-from howl_editor.gui.layout import WindowSize
+from howl_editor.gui.layout import DialogSpacing, WindowSize
 
 
-class TrackEventsDialog(QDialog):
+class TrackEventsDialog(StyledDialog):
 
     def __init__(
         self, parent, title: str, song: CseqSong,
@@ -24,8 +25,7 @@ class TrackEventsDialog(QDialog):
     ):
         """`editor` is a SequenceEventEditor already bound to the song and
         sequence being shown; passing None makes the dialog read-only."""
-        super().__init__(parent)
-        self.setWindowTitle(title)
+        super().__init__(parent, title)
         self.resize(WindowSize.TRACK_EVENTS_WIDTH, WindowSize.TRACK_EVENTS_HEIGHT)
         self._song = song
         self._instrument_count = instrument_count
@@ -37,18 +37,16 @@ class TrackEventsDialog(QDialog):
             self._track_list.setCurrentRow(0)
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-
-        summary = QLabel(
+        self.add_header(
+            self.windowTitle(),
             f"<b>{self._song.bpm}</b> BPM · "
             f"<b>{self._song.tpqn}</b> ticks per quarter · "
             f"<b>{len(self._song.tracks)}</b> tracks",
         )
-        layout.addWidget(summary)
 
         splitter = QSplitter(Qt.Horizontal)
 
-        self._track_list = QListWidget()
+        self._track_list = self.pick_list()
         for i, track in enumerate(self._song.tracks):
             item = QListWidgetItem(self._track_label(i))
             item.setData(Qt.UserRole, i)
@@ -72,29 +70,22 @@ class TrackEventsDialog(QDialog):
         self._event_table.horizontalHeader().setStretchLastSection(True)
         splitter.addWidget(self._event_table)
         splitter.setSizes([220, 540])
-        layout.addWidget(splitter, stretch=1)
+        self._body.addWidget(splitter, stretch=1)
 
         if self._editing_enabled():
-            layout.addLayout(self._build_event_buttons())
+            self._body.addLayout(self._build_event_buttons())
 
-        bottom_row = QHBoxLayout()
+        leading = []
 
         if self._editor is not None:
-            replace_btn = QPushButton("🎼  Replace from MIDI…")
-            replace_btn.setToolTip(
+            leading.append(self.action_button(
+                "🎼  Replace from MIDI…",
                 "Pick a MIDI file and overwrite the currently-selected "
                 "track's events. Track flags / instrument stay put.",
-            )
-            replace_btn.clicked.connect(self._fire_replace)
-            bottom_row.addWidget(replace_btn)
+                self._fire_replace,
+            ))
 
-        bottom_row.addStretch(1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-        bottom_row.addWidget(buttons)
-        layout.addLayout(bottom_row)
+        self.add_footer(self.buttons("✅  Done", cancel=False), *leading)
 
     def _fire_replace(self) -> None:
         row = self._track_list.currentRow()
@@ -121,39 +112,42 @@ class TrackEventsDialog(QDialog):
     def _editing_enabled(self) -> bool:
         return self._editor is not None
 
-    def _build_event_buttons(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_event_buttons(self) -> QVBoxLayout:
+        buttons = QHBoxLayout()
+        buttons.setSpacing(DialogSpacing.BUTTONS)
 
-        hint = QLabel(
-            "Modulation events (volume / pan / reverb / pitch bend) re-apply "
-            "to notes already sounding:",
+        self._edit_event_btn = self.action_button(
+            "✏️  Edit value…", on_click=self._do_edit_event,
         )
-        hint.setWordWrap(True)
-        row.addWidget(hint)
-        row.addStretch(1)
+        buttons.addWidget(self._edit_event_btn)
 
-        self._edit_event_btn = QPushButton("✏️  Edit value…")
-        self._edit_event_btn.clicked.connect(self._do_edit_event)
-        row.addWidget(self._edit_event_btn)
-
-        self._insert_event_btn = QPushButton("➕  Insert before…")
-        self._insert_event_btn.setToolTip(
+        self._insert_event_btn = self.action_button(
+            "➕  Insert before…",
             "Insert a modulation event before the selected one. CTR has no "
             "ramp primitive — a smooth bend or fade is a dense run of these.",
+            self._do_insert_event,
         )
-        self._insert_event_btn.clicked.connect(self._do_insert_event)
-        row.addWidget(self._insert_event_btn)
+        buttons.addWidget(self._insert_event_btn)
 
-        self._delete_event_btn = QPushButton("🗑️  Delete")
-        self._delete_event_btn.setToolTip(
+        self._delete_event_btn = self.action_button(
+            "🗑️  Delete",
             "Remove the selected modulation event. Its delta is folded into "
             "the next event so nothing later in the track shifts earlier.",
+            self._do_delete_event,
         )
-        self._delete_event_btn.clicked.connect(self._do_delete_event)
-        row.addWidget(self._delete_event_btn)
+        buttons.addWidget(self._delete_event_btn)
+        buttons.addStretch(1)
+
+        section = QVBoxLayout()
+        section.setSpacing(DialogSpacing.HEADER)
+        section.addLayout(buttons)
+        section.addWidget(self.hint(
+            "Modulation events (volume / pan / reverb / pitch bend) re-apply "
+            "to notes already sounding.",
+        ))
 
         self._refresh_event_buttons()
-        return row
+        return section
 
     def _refresh_event_buttons(self) -> None:
         if not self._editing_enabled():

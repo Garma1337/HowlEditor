@@ -416,12 +416,12 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        toolbar.addAction("New", self._new_file)
-        toolbar.addAction("Open", self._open_file)
-        self._file_actions.append(toolbar.addAction("Close", self._close_file))
-        self._file_actions.append(toolbar.addAction("Save", self._save_file))
+        toolbar.addAction("📄  New", self._new_file)
+        toolbar.addAction("📂  Open", self._open_file)
+        self._file_actions.append(toolbar.addAction("✖️  Close", self._close_file))
+        self._file_actions.append(toolbar.addAction("💾  Save", self._save_file))
         toolbar.addSeparator()
-        self._file_actions.append(toolbar.addAction("Stop Playback", self._playback.stop))
+        self._file_actions.append(toolbar.addAction("⏹️  Stop Playback", self._playback.stop))
 
         for action in self._file_actions:
             action.setEnabled(False)

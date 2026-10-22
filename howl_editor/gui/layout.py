@@ -37,35 +37,43 @@ class WindowSize:
     MAIN_WIDTH = 1300
     MAIN_HEIGHT = 900
 
-    SAPHI_EXPORT_WIDTH = 420
-    SAPHI_EXPORT_HEIGHT = 220
-
-    EXPORT_WIDTH = 250
-    EXPORT_HEIGHT = 125
-
+    # Dialogs sized by their content: minimum widths only.
+    SAPHI_EXPORT_WIDTH = 440
+    EXPORT_WIDTH = 340
     REPLACE_SAMPLE_WIDTH = 520
-    REPLACE_SAMPLE_HEIGHT = 300
-    COPY_SAMPLE_WIDTH = 420
-    COPY_SAMPLE_HEIGHT = 125
+    COPY_SAMPLE_WIDTH = 460
+    EDIT_INSTRUMENT_WIDTH = 460
+    MIDI_EXPORT_WIDTH = 440
+    CHOICE_WIDTH = 420
 
-    EDIT_INSTRUMENT_WIDTH = 500
-    EDIT_INSTRUMENT_HEIGHT = 250
-    EDIT_INSTRUMENT_HEIGHT_WITH_ADSR = 290
+    # Dialogs built around a list or table: a starting size.
+    SELECT_SAMPLE_WIDTH = 520
+    SELECT_SAMPLE_HEIGHT = 560
 
-    SELECT_SAMPLE_WIDTH = 480
-    SELECT_SAMPLE_HEIGHT = 480
+    TRACK_EVENTS_WIDTH = 820
+    TRACK_EVENTS_HEIGHT = 600
 
-    TRACK_EVENTS_WIDTH = 760
-    TRACK_EVENTS_HEIGHT = 560
+    MERGE_BANK_WIDTH = 780
+    MERGE_BANK_HEIGHT = 580
 
-    MIDI_EXPORT_WIDTH = 380
-    MIDI_EXPORT_HEIGHT = 150
+    CONVERT_MIDI_WIDTH = 820
+    CONVERT_MIDI_HEIGHT = 600
 
-    MERGE_BANK_WIDTH = 750
-    MERGE_BANK_HEIGHT = 550
+    DIAGNOSIS_WIDTH = 760
+    DIAGNOSIS_HEIGHT = 520
 
-    CONVERT_MIDI_WIDTH = 720
-    CONVERT_MIDI_HEIGHT = 520
+
+class DialogSpacing:
+    """Spacing shared by every StyledDialog, so they line up with each other."""
+
+    MARGIN = 20          # around the dialog's content
+    SECTION = 14         # between header, sections and footer
+    HEADER = 4           # title to subtitle
+    FORM_COLUMNS = 16    # form label to field
+    FORM_ROWS = 10
+    BUTTONS = 8
+    FOOTER_GAP = 6       # extra air above the button row
+    OPTION_HINT_INDENT = 24  # past a checkbox's indicator, to its text
 
 
 class Inset:

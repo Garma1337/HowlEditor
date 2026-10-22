@@ -4,16 +4,16 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QSpinBox, QGroupBox, QFormLayout, QTableWidget,
-    QTableWidgetItem, QDialogButtonBox, QCheckBox,
+    QCheckBox, QFormLayout, QHBoxLayout, QLabel, QSpinBox, QTableWidget,
+    QTableWidgetItem, QVBoxLayout,
 )
 
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
 from howl_editor.ctr.voice.pitch_calculator import PitchCalculator
 from howl_editor.ctr.voice.pitch_headroom import PitchHeadroomInspector
 from howl_editor.ctr.voice.pitch_stepper import PitchStepper
-from howl_editor.gui.layout import WindowSize
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
+from howl_editor.gui.layout import DialogSpacing, WindowSize
 from howl_editor.gui.widget.pitch_spin_box import PitchSpinBox
 from howl_editor.midi.drum_name_resolver import DrumNameResolver
 from howl_editor.midi.models import (
@@ -54,7 +54,7 @@ class ConvertRowMeta:
     is_drum_track: bool
 
 
-class ConvertMidiDialog(QDialog):
+class ConvertMidiDialog(StyledDialog):
 
     def __init__(
         self, parent, midi_info: MidiInfo, max_spu_index: int,
@@ -65,8 +65,7 @@ class ConvertMidiDialog(QDialog):
         free_spu_indices: set[int] | None = None,
         pitch_stepper: PitchStepper | None = None,
     ):
-        super().__init__(parent)
-        self.setWindowTitle("Convert MIDI to CSEQ - Instrument Mapping")
+        super().__init__(parent, "Convert MIDI to CSEQ")
         self.resize(WindowSize.CONVERT_MIDI_WIDTH, WindowSize.CONVERT_MIDI_HEIGHT)
         self.midi_info = midi_info
         self._max_spu = max_spu_index
@@ -80,38 +79,38 @@ class ConvertMidiDialog(QDialog):
         self._row_meta: list[ConvertRowMeta] = []
         self._warning_label = self._build_warning_label()
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._build_info_group())
-        layout.addLayout(self._build_bpm_row())
-        layout.addWidget(self._build_mapping_group())
-        layout.addWidget(self._warning_label)
-        layout.addWidget(self._build_buttons())
+        self.add_header(
+            "Map MIDI tracks to instruments",
+            f"<b>{self.midi_info.num_tracks}</b> tracks · "
+            f"<b>{self.midi_info.ticks_per_beat}</b> ticks per beat",
+        )
+        self._body.addLayout(self._build_bpm_row())
+        self._body.addLayout(self._build_mapping_section(), stretch=1)
+        self._body.addWidget(self._warning_label)
+        self.add_footer(self.buttons("🔄  Convert"))
 
-    def _build_info_group(self) -> QGroupBox:
-        group = QGroupBox("MIDI File Info")
-        form = QFormLayout()
-        form.addRow("Tracks:", QLabel(str(self.midi_info.num_tracks)))
-        form.addRow("Ticks/Beat:", QLabel(str(self.midi_info.ticks_per_beat)))
-        group.setLayout(form)
-
-        return group
-
-    def _build_bpm_row(self) -> QHBoxLayout:
-        layout = QHBoxLayout()
-        layout.addWidget(QLabel("BPM (0 = from MIDI):"))
+    def _build_bpm_row(self) -> QFormLayout:
+        form = self.form()
         self.bpm_spin = QSpinBox()
         self.bpm_spin.setRange(0, 300)
         self.bpm_spin.setValue(0)
-        layout.addWidget(self.bpm_spin)
-        layout.addStretch()
+        self.bpm_spin.setSpecialValueText("From MIDI")
+        self.bpm_spin.setMinimumWidth(120)
 
-        return layout
+        row = QHBoxLayout()
+        row.addWidget(self.bpm_spin)
+        row.addStretch()
+        form.addRow("Tempo (BPM):", row)
 
-    def _build_mapping_group(self) -> QGroupBox:
-        group = QGroupBox("Track Instrument Mapping")
+        return form
+
+    def _build_mapping_section(self) -> QVBoxLayout:
         layout = QVBoxLayout()
+        layout.setSpacing(DialogSpacing.HEADER)
 
+        layout.addWidget(self.section_title("Instruments"))
         layout.addWidget(self._build_help_label())
+        layout.addSpacing(DialogSpacing.HEADER)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
@@ -122,22 +121,17 @@ class ConvertMidiDialog(QDialog):
 
         self._fill_table()
 
-        layout.addWidget(self.table)
-        group.setLayout(layout)
+        layout.addWidget(self.table, stretch=1)
 
-        return group
+        return layout
 
     def _build_help_label(self) -> QLabel:
-        label = QLabel(
+        return self.hint(
             "Drum tracks on MIDI channel 10 are expanded into one row per "
             "unique drum hit — each needs its own SPU sample. If your "
             "percussion is on another channel, tick 'Drum' to expand it the "
             "same way.",
         )
-        label.setWordWrap(True)
-        label.setStyleSheet("color: palette(mid); font-size: 11px;")
-
-        return label
 
     def _fill_table(self) -> None:
         """(Re)build every row from the current drum-override state. Called on
@@ -328,12 +322,7 @@ class ConvertMidiDialog(QDialog):
         return min(row, self._max_spu - 1)
 
     def _build_warning_label(self) -> QLabel:
-        label = QLabel()
-        label.setWordWrap(True)
-        label.setStyleSheet("color: #e6b800; font-size: 11px;")
-        label.hide()
-
-        return label
+        return self.callout()
 
     def _refresh_pitch_warnings(self) -> None:
         """Re-evaluate every melodic row against the notes its track plays and
@@ -383,19 +372,7 @@ class ConvertMidiDialog(QDialog):
         spin.setToolTip(_PITCH_TOOLTIP)
 
     def _show_warnings(self, messages: list[str]) -> None:
-        if not messages:
-            self._warning_label.clear()
-            self._warning_label.hide()
-            return
-
-        self._warning_label.setText("\n".join(f"⚠️ {m}" for m in messages))
-        self._warning_label.show()
-
-    def _build_buttons(self) -> QDialogButtonBox:
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        return buttons
+        self.set_callout(self._warning_label, "\n\n".join(messages))
 
     def get_settings(self) -> MidiConvertSettings:
         settings = MidiConvertSettings()

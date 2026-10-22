@@ -30,6 +30,32 @@ QPushButton:default {
     border-color: palette(highlight);
 }
 
+QPushButton[primary="true"] {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-color: palette(highlight);
+    font-weight: 600;
+}
+
+QPushButton[primary="true"]:hover {
+    border-color: palette(highlighted-text);
+}
+
+QPushButton[primary="true"]:pressed {
+    border-color: palette(highlight);
+    color: palette(light);
+}
+
+QPushButton[primary="true"]:disabled {
+    background: palette(window);
+    color: #8a8a8a;
+    border-color: palette(mid);
+}
+
+QDialogButtonBox QPushButton {
+    min-width: 76px;
+}
+
 QToolBar {
     background: palette(window);
     border: none;
@@ -199,43 +225,98 @@ QSpinBox, QDoubleSpinBox {
 
 QCheckBox, QRadioButton {
     color: palette(window-text);
-    spacing: 6px;
+    spacing: 8px;
     background: transparent;
 }
 
-/* The platform style draws an indicator that all but disappears on the dark
-   palette, so checked state gets an explicit fill. */
-QRadioButton::indicator {
-    width: 14px;
-    height: 14px;
-    border: 1px solid palette(mid);
-    border-radius: 8px;
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #8a8a8a;
     background: palette(base);
 }
 
-QRadioButton::indicator:checked {
-    background: palette(highlight);
+QCheckBox::indicator {
+    border-radius: 4px;
+}
+
+QRadioButton::indicator {
+    border-radius: 9px;
+}
+
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {
     border-color: palette(highlight);
 }
 
-QRadioButton::indicator:hover {
+QCheckBox::indicator:checked {
+    background: palette(highlight);
     border-color: palette(highlight);
+    image: url("$qss_dir/check.png");
+}
+
+QRadioButton::indicator:checked {
+    background: white;
+    border: 5px solid palette(highlight);
+    width: 8px;
+    height: 8px;
+}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    border-color: palette(mid);
+    background: palette(window);
 }
 
 QGroupBox {
     background: palette(window);
     color: palette(window-text);
     border: 1px solid palette(mid);
-    border-radius: 5px;
-    margin-top: 14px;
-    padding-top: 10px;
+    border-radius: 6px;
+    margin-top: 22px;
+    padding: 10px 8px 8px 8px;
     font-weight: 600;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 4px;
+    subcontrol-position: top left;
+    left: 2px;
+    top: 0px;
+    padding: 0 0 6px 0;
+}
+
+QLabel#dialogTitle {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QLabel#dialogSection {
+    font-weight: 600;
+}
+
+QLabel#dialogHint {
+    color: palette(placeholder-text);
+}
+
+QListWidget#dialogList::item {
+    height: 26px;
+    padding: 0px 8px;
+}
+
+QLabel#dialogCallout {
+    border-radius: 6px;
+    border-left: 3px solid #3b82d6;
+    background: rgba(59, 130, 214, 0.14);
+    padding: 8px 10px;
+}
+
+QLabel#dialogCallout[severity="warning"] {
+    border-left-color: #d48a10;
+    background: rgba(212, 138, 16, 0.15);
+}
+
+QLabel#dialogCallout[severity="danger"] {
+    border-left-color: #d0392f;
+    background: rgba(208, 57, 47, 0.15);
 }
 
 QTreeView, QTreeWidget, QListView, QListWidget, QTableView, QTableWidget {
@@ -261,6 +342,10 @@ QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {
 QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {
     background: palette(highlight);
     color: palette(highlighted-text);
+}
+
+QListView::item:disabled {
+    color: #8a8a8a;
 }
 
 QHeaderView::section {

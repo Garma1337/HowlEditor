@@ -2,11 +2,9 @@
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout,
-)
+from PySide6.QtWidgets import QComboBox
 
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
 from howl_editor.gui.layout import WindowSize
 
 
@@ -25,7 +23,7 @@ class CopyTarget:
     child_index: int | None  # None => append a new child
 
 
-class CopyTargetDialog(QDialog):
+class CopyTargetDialog(StyledDialog):
     """Generic 'copy X into Y' picker: choose a target container and either
     append as a new child or replace one of its existing children. Used by
     both 'copy sample to bank' and 'copy sequence to song' flows — the labels
@@ -42,13 +40,12 @@ class CopyTargetDialog(QDialog):
         containers: list[CopyTargetContainer],
         source_container_index: int,
     ):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.resize(WindowSize.COPY_SAMPLE_WIDTH, WindowSize.COPY_SAMPLE_HEIGHT)
+        super().__init__(parent, title)
+        self.setMinimumWidth(WindowSize.COPY_SAMPLE_WIDTH)
         self._containers = containers
         self._source_container_index = source_container_index
         self._append_label = append_label
-        self._build_ui(prompt, container_label, child_label)
+        self._build_ui(title, prompt, container_label, child_label)
 
     def chosen_target(self) -> CopyTarget | None:
         container = self._selected_container()
@@ -60,15 +57,11 @@ class CopyTargetDialog(QDialog):
             child_index=self._child_combo.currentData(),
         )
 
-    def _build_ui(self, prompt: str, container_label: str, child_label: str) -> None:
-        layout = QVBoxLayout(self)
+    def _build_ui(self, title: str, prompt: str, container_label: str, child_label: str) -> None:
+        self.add_header(title, prompt)
 
-        label = QLabel(prompt)
-        label.setWordWrap(True)
-        layout.addWidget(label)
-
-        form = QFormLayout()
-        layout.addLayout(form)
+        form = self.form()
+        self._body.addLayout(form)
 
         self._container_combo = QComboBox()
         for container in self._containers:
@@ -86,10 +79,7 @@ class CopyTargetDialog(QDialog):
         form.addRow(child_label, self._child_combo)
         self._refresh_child_combo()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons, alignment=Qt.AlignRight)
+        self.add_footer(self.buttons("📑  Copy"))
 
     def _selected_container(self) -> CopyTargetContainer | None:
         idx = self._container_combo.currentIndex()

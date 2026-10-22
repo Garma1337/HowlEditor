@@ -169,7 +169,7 @@ class BusyNotification:
         if not self._is_live():
             return
 
-        button = QPushButton("Cancel")
+        button = QPushButton("✖️  Cancel")
         button.setObjectName("notificationCancel")
         button.clicked.connect(on_cancel)
         self._row.layout().addWidget(button)

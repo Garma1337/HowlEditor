@@ -2,20 +2,17 @@
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QPushButton,
-    QSpinBox, QVBoxLayout,
-)
+from PySide6.QtWidgets import QHBoxLayout, QSpinBox
 
 from howl_editor.ctr.formats.cseq import format as cseq_fmt
 from howl_editor.ctr.voice.pitch_stepper import PitchStepper
+from howl_editor.gui.dialog.styled_dialog import StyledDialog
 from howl_editor.gui.layout import WindowSize
 from howl_editor.gui.widget.pitch_spin_box import PitchSpinBox
 from howl_editor.ps1 import spu
 
 _CEILING_WARNING = (
-    "⚠️ Above the SPU's 4.0× ceiling — the SPU plays it at 4.0× instead, so it comes out flat."
+    "Above the SPU's 4.0× ceiling — the SPU plays it at 4.0× instead, so it comes out flat."
 )
 
 
@@ -26,7 +23,7 @@ class EditInstrumentResult:
     adsr: int | None
 
 
-class EditInstrumentDialog(QDialog):
+class EditInstrumentDialog(StyledDialog):
 
     def __init__(
         self,
@@ -38,12 +35,10 @@ class EditInstrumentDialog(QDialog):
         initial_adsr: int | None = None,
         pitch_stepper: PitchStepper | None = None,
     ):
-        super().__init__(parent)
+        super().__init__(parent, title)
         self._stepper = pitch_stepper or PitchStepper()
-        self.setWindowTitle(title)
-        height = WindowSize.EDIT_INSTRUMENT_HEIGHT_WITH_ADSR if initial_adsr is not None else WindowSize.EDIT_INSTRUMENT_HEIGHT
-        self.resize(WindowSize.EDIT_INSTRUMENT_WIDTH, height)
-        self._build_ui(subject_label, initial_volume, initial_frequency, initial_adsr)
+        self.setMinimumWidth(WindowSize.EDIT_INSTRUMENT_WIDTH)
+        self._build_ui(title, subject_label, initial_volume, initial_frequency, initial_adsr)
 
     def chosen(self) -> EditInstrumentResult:
         adsr: int | None = None
@@ -59,19 +54,16 @@ class EditInstrumentDialog(QDialog):
 
     def _build_ui(
         self,
+        title: str,
         subject_label: str,
         initial_volume: int,
         initial_frequency: int,
         initial_adsr: int | None,
     ) -> None:
-        layout = QVBoxLayout(self)
+        self.add_header(title, subject_label)
 
-        header = QLabel(subject_label)
-        header.setWordWrap(True)
-        layout.addWidget(header)
-
-        form = QFormLayout()
-        layout.addLayout(form)
+        form = self.form()
+        self._body.addLayout(form)
 
         self._volume = QSpinBox()
         self._volume.setRange(0, cseq_fmt.MAX_VOLUME)
@@ -83,15 +75,12 @@ class EditInstrumentDialog(QDialog):
         self._frequency.setValue(max(0, min(cseq_fmt.MAX_PITCH_REGISTER, initial_frequency)))
         self._frequency.valueChanged.connect(self._update_hz_label)
         form.addRow("Pitch register:", self._frequency)
+
+        self._hz_label = self.hint()
+        form.addRow("", self._hz_label)
         form.addRow("", self._build_octave_row())
 
-        self._hz_label = QLabel()
-        self._hz_label.setAlignment(Qt.AlignRight)
-        form.addRow("≈ Hz:", self._hz_label)
-
-        self._ceiling_label = QLabel()
-        self._ceiling_label.setWordWrap(True)
-        layout.addWidget(self._ceiling_label)
+        self._ceiling_label = self.callout()
 
         self._update_hz_label(self._frequency.value())
 
@@ -104,10 +93,8 @@ class EditInstrumentDialog(QDialog):
             form.addRow("Attack/Decay (ADSR1):", self._adsr_lo)
             form.addRow("Sustain/Release (ADSR2):", self._adsr_hi)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons, alignment=Qt.AlignRight)
+        self._body.addWidget(self._ceiling_label)
+        self.add_footer(self.buttons("💾  Save"))
 
     def _build_octave_row(self) -> QHBoxLayout:
         """The spin box already steps octaves on Page Up/Down, but the common
@@ -119,12 +106,10 @@ class EditInstrumentDialog(QDialog):
         )
 
         for label, slot, verb, direction in steps:
-            button = QPushButton(label)
-            button.setToolTip(
-                f"{verb} the pitch register — exactly one octave {direction}."
-            )
-            button.clicked.connect(slot)
-            row.addWidget(button)
+            row.addWidget(self.action_button(
+                label, f"{verb} the pitch register — exactly one octave {direction}.",
+                slot,
+            ))
 
         row.addStretch()
         return row
@@ -139,7 +124,8 @@ class EditInstrumentDialog(QDialog):
 
     def _update_hz_label(self, raw: int) -> None:
         hz = int(raw / spu.FREQUENCY_UNIT * spu.SAMPLE_RATE)
-        self._hz_label.setText(f"{hz} Hz  ({raw / spu.FREQUENCY_UNIT:.2f}×)")
-        self._ceiling_label.setText(
+        self._hz_label.setText(f"≈ {hz} Hz  ·  {raw / spu.FREQUENCY_UNIT:.2f}× speed")
+        self.set_callout(
+            self._ceiling_label,
             _CEILING_WARNING if self._stepper.exceeds_playable_ceiling(raw) else "",
         )

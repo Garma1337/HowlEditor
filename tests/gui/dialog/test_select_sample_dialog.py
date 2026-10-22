@@ -1,6 +1,8 @@
 # coding: utf-8
 
+import gc
 import os
+import weakref
 
 import pytest
 
@@ -121,3 +123,18 @@ class TestPitchOption:
         dlg._pitch_option.setChecked(False)
 
         assert dlg.adopt_pitch() is False
+
+
+class TestLifetime:
+
+    def test_dropping_the_dialog_frees_it_without_the_cyclic_collector(self, qt_app):
+        gc.collect()
+        dialog = SelectSampleDialog(None, "t", "p", _choices(), on_preview=lambda _spu: None)
+        ref = weakref.ref(dialog)
+
+        gc.disable()
+        try:
+            del dialog
+            assert ref() is None, "dialog outlived its last reference - it is in a cycle"
+        finally:
+            gc.enable()

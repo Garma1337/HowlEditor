@@ -28,6 +28,7 @@ _COL_PITCH = 3
 _COL_DRUM = 4
 
 _USER_SET_PITCH = "userSetPitch"
+_TRACK_INDEX = "trackIndex"
 
 _PITCH_TOOLTIP = (
     "The SPU pitch register this instrument plays at MIDI note 60.\n"
@@ -204,7 +205,6 @@ class ConvertMidiDialog(StyledDialog):
         spu_spin.setRange(0, 65535)
         spu_spin.setValue(default_spu)
         self._mark_free_spu(spu_spin)
-        spu_spin.valueChanged.connect(lambda _value, s=spu_spin: self._mark_free_spu(s))
         self.table.setCellWidget(row, _COL_SPU, spu_spin)
 
         pitch_spin = PitchSpinBox(pitch_stepper=self._stepper)
@@ -212,14 +212,8 @@ class ConvertMidiDialog(StyledDialog):
         pitch_spin.setToolTip(_PITCH_TOOLTIP)
         self.table.setCellWidget(row, _COL_PITCH, pitch_spin)
 
-        pitch_spin.valueChanged.connect(
-            lambda _value, ps=pitch_spin: ps.setProperty(_USER_SET_PITCH, True),
-        )
-        pitch_spin.valueChanged.connect(lambda *_: self._refresh_pitch_warnings())
-        spu_spin.valueChanged.connect(
-            lambda value, ps=pitch_spin: self._sync_pitch_to_spu(value, ps),
-        )
-        spu_spin.valueChanged.connect(lambda *_: self._refresh_pitch_warnings())
+        pitch_spin.valueChanged.connect(self._on_pitch_changed)
+        spu_spin.valueChanged.connect(self._on_spu_changed)
 
         if self._is_first_row_of_track(row):
             self.table.setCellWidget(row, _COL_DRUM, self._build_drum_checkbox(track))
@@ -231,11 +225,35 @@ class ConvertMidiDialog(StyledDialog):
             "Treat this track as drums — expand it into one percussion slot "
             "per pitch instead of a single melodic instrument.",
         )
-        box.toggled.connect(
-            lambda checked, idx=track.index: self._on_drum_toggled(idx, checked),
-        )
+        box.setProperty(_TRACK_INDEX, track.index)
+        box.toggled.connect(self._on_drum_box_toggled)
 
         return box
+
+    def _on_pitch_changed(self, _value: int) -> None:
+        self.sender().setProperty(_USER_SET_PITCH, True)
+        self._refresh_pitch_warnings()
+
+    def _on_spu_changed(self, value: int) -> None:
+        spu_spin = self.sender()
+        self._mark_free_spu(spu_spin)
+
+        row = self._row_of(spu_spin, _COL_SPU)
+
+        if row is not None:
+            self._sync_pitch_to_spu(value, self.table.cellWidget(row, _COL_PITCH))
+
+        self._refresh_pitch_warnings()
+
+    def _row_of(self, widget, column: int) -> int | None:
+        for row in range(self.table.rowCount()):
+            if self.table.cellWidget(row, column) is widget:
+                return row
+
+        return None
+
+    def _on_drum_box_toggled(self, checked: bool) -> None:
+        self._on_drum_toggled(self.sender().property(_TRACK_INDEX), checked)
 
     def _on_drum_toggled(self, track_index: int, checked: bool) -> None:
         self._drum_override[track_index] = checked

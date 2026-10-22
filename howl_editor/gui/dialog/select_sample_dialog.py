@@ -59,7 +59,7 @@ class SelectSampleDialog(StyledDialog):
 
         self._list = self.pick_list()
         self._body.addWidget(self._list, stretch=1)
-        self._list.itemDoubleClicked.connect(lambda _item: self.accept())
+        self._list.itemDoubleClicked.connect(self._accept_item)
         self._populate()
 
         if pitch_option is not None:
@@ -78,6 +78,9 @@ class SelectSampleDialog(StyledDialog):
             leading.append(self._preview_button)
 
         self.add_footer(self.buttons("✅  Select"), *leading)
+
+    def _accept_item(self, _item) -> None:
+        self.accept()
 
     def _preview_selected(self) -> None:
         spu_index = self.chosen_spu_index()

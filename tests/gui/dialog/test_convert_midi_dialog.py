@@ -1,6 +1,8 @@
 # coding: utf-8
 
+import gc
 import os
+import weakref
 
 import pytest
 
@@ -373,3 +375,29 @@ class TestFreeSpuMarking:
 
         spin.setValue(5)
         assert spin.suffix() == ""
+
+
+class TestLifetime:
+
+    def test_dropping_the_dialog_frees_it_without_the_cyclic_collector(self, qt_app):
+        gc.collect()
+        dialog = ConvertMidiDialog(None, _melodic_track_with_pitches([40, 41, 42]), max_spu_index=10)
+        ref = weakref.ref(dialog)
+
+        gc.disable()
+        try:
+            del dialog
+            assert ref() is None, "dialog outlived its last reference - it is in a cycle"
+        finally:
+            gc.enable()
+
+
+class TestDrumCheckbox:
+
+    def test_ticking_the_row_checkbox_expands_the_track(self, qt_app):
+        dlg = ConvertMidiDialog(None, _melodic_track_with_pitches([40, 41, 42]), max_spu_index=10)
+
+        dlg.table.cellWidget(0, 4).setChecked(True)
+
+        assert dlg.table.rowCount() == 3
+        assert dlg.get_settings().mappings[0].is_drum is True
